@@ -9,5 +9,8 @@
         <module name="cssap" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="cssap" target="1.8" />
+    </bytecodeTargetLevel>
   </component>
 </project>
