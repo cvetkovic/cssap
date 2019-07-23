@@ -1,0 +1,11 @@
+						Vertex
+						   |
+						   |
+			---------------------------------
+			|			   |				|
+		 Source			  Sink			 Operator
+											|
+											|
+								--------------------------
+								|						 |
+					   OperatorOrderedByKey		 OperatorUnordered
