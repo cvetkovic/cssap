@@ -1,9 +1,6 @@
 package compiler;
 
-import compiler.interfaces.Operator;
-import compiler.interfaces.Sink;
-import compiler.interfaces.Source;
-import compiler.interfaces.Vertex;
+import compiler.interfaces.*;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.topology.BoltDeclarer;
 import org.apache.storm.topology.TopologyBuilder;
@@ -24,6 +21,9 @@ public class Pipeline
 
     public void defineOperator(Operator target, int parallelismHint, Vertex... sources)
     {
+        if (target instanceof OperatorOrderedByKey && parallelismHint > 1)
+            throw new RuntimeException("Parallelism is not allowed for ordered operator due to semantics preservation.");
+
         BoltDeclarer declarer = builder.setBolt(target.getName(), target, parallelismHint);
         for (int i = 0 ; i < sources.length; i++)
             declarer.shuffleGrouping(sources[i].getName());
