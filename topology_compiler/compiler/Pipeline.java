@@ -91,7 +91,6 @@ public class Pipeline implements Serializable
             public void open(Map conf, TopologyContext context, SpoutOutputCollector collector)
             {
                 this.collector = collector;
-                producer.init();
             }
 
             @Override
@@ -133,7 +132,6 @@ public class Pipeline implements Serializable
             public void prepare(Map stormConf, TopologyContext context)
             {
                 super.prepare(stormConf, context);
-                operator.init();
             }
         };
     }
@@ -160,7 +158,6 @@ public class Pipeline implements Serializable
             public void prepare(Map stormConf, TopologyContext context)
             {
                 super.prepare(stormConf, context);
-                consumer.init();
             }
         };
     }

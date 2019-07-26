@@ -17,8 +17,8 @@ public class Runner
     {
         IProducer source = NodesFactory.createSource(new IActionSource<KV<Integer, Double>>()
         {
-            private int number;
-            private Random r;
+            private int number = 0;
+            private Random r = new Random();
 
             @Override
             public KV<Integer, Double> process()
@@ -26,14 +26,6 @@ public class Runner
                 double measurement = r.nextDouble() * 2.5;
 
                 return new KV<Integer, Double>(number++, measurement);
-            }
-
-            @Override
-            public void init()
-            {
-                r = new Random();
-                r.setSeed(System.currentTimeMillis());
-                number = 0;
             }
         });
         Operator multiplier = NodesFactory.createOperator(new IActionOperator<KV<Integer, Double>>()
@@ -43,16 +35,10 @@ public class Runner
             {
                 return new KV<Integer,Double>(item.getK(), 2 * item.getV());
             }
-
-            @Override
-            public void init()
-            {
-
-            }
         });
         Operator interpolator = NodesFactory.createOperator(new IActionOperator<KV<Integer, Double>>()
         {
-            private double previous;
+            private double previous = 0;
 
             @Override
             public KV<Integer, Double> process(KV<Integer, Double> item)
@@ -62,12 +48,6 @@ public class Runner
                 previous = measurement;
 
                 return new KV<>(0,interpolatedValue);
-            }
-
-            @Override
-            public void init()
-            {
-                previous = 0;
             }
         });
         Operator average = NodesFactory.createOperator(new IActionOperator<KV<Integer, Double>>()
@@ -96,12 +76,6 @@ public class Runner
 
                 return null;
             }
-
-            @Override
-            public void init()
-            {
-
-            }
         });
         IConsumer printer = NodesFactory.createSink(new IActionSink<KV<Integer,Double>>()
         {
@@ -109,12 +83,6 @@ public class Runner
             public void process(KV<Integer, Double> item)
             {
                 System.out.println(item.getV());
-            }
-
-            @Override
-            public void init()
-            {
-
             }
         });
 

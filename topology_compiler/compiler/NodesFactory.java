@@ -11,12 +11,6 @@ public class NodesFactory
             private IConsumer<T> consumer;
 
             @Override
-            public void init()
-            {
-                code.init();
-            }
-
-            @Override
             public T next(T item)
             {
                 T generatedItem = code.process();
@@ -41,12 +35,6 @@ public class NodesFactory
             private IConsumer<T> consumer;
 
             @Override
-            public void init()
-            {
-                code.init();
-            }
-
-            @Override
             public T next(T item)
             {
                 T operationDone = code.process(item);
@@ -68,12 +56,6 @@ public class NodesFactory
     {
         return new IConsumer<T>()
         {
-            @Override
-            public void init()
-            {
-                code.init();
-            }
-
             @Override
             public T next(T item)
             {
