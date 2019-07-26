@@ -17,11 +17,13 @@ public class NodesFactory
             }
 
             @Override
-            public void next(T item)
+            public T next(T item)
             {
                 T generatedItem = code.process();
-                if (generatedItem != null)
-                    consumer.next(generatedItem);
+                /*if (generatedItem != null)
+                    consumer.next(generatedItem);*/
+
+                return generatedItem;
             }
 
             @Override
@@ -45,11 +47,13 @@ public class NodesFactory
             }
 
             @Override
-            public void next(T item)
+            public T next(T item)
             {
                 T operationDone = code.process(item);
-                if (operationDone != null)
-                    consumer.next(operationDone);
+                /*if (operationDone != null)
+                    consumer.next(operationDone);*/
+
+                return operationDone;
             }
 
             @Override
@@ -71,10 +75,12 @@ public class NodesFactory
             }
 
             @Override
-            public void next(T item)
+            public T next(T item)
             {
                 if (item != null)
                     code.process(item);
+
+                return null;
             }
         };
     }

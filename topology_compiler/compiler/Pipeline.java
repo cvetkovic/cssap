@@ -12,6 +12,7 @@ import org.apache.storm.topology.base.BaseBasicBolt;
 import org.apache.storm.topology.base.BaseRichSpout;
 import org.apache.storm.tuple.Fields;
 import org.apache.storm.tuple.Tuple;
+import org.apache.storm.tuple.Values;
 
 import java.io.Serializable;
 import java.util.Map;
@@ -85,7 +86,9 @@ public class Pipeline implements Serializable
             @Override
             public void nextTuple()
             {
-                producer.next(null);
+                KV<Integer, Double> kv = (KV<Integer, Double>) producer.next(null);
+                if (kv != null)
+                    collector.emit(new Values(kv.getK(), kv.getV()));
             }
 
             @Override
@@ -104,7 +107,9 @@ public class Pipeline implements Serializable
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 KV kv = new KV(input.getInteger(0), input.getDouble(1));
-                operator.next(kv);
+                kv = (KV<Integer, Double>) operator.next(kv);
+                if (kv != null)
+                    collector.emit(new Values(kv.getK(), kv.getV()));
             }
 
             @Override
