@@ -31,11 +31,6 @@ public class Pipeline implements Serializable
 
         for (int i = 0; i < consumers.length; i++)
             operators[i] = consumers[i];
-    }
-
-    public StormTopology getStormTopology()
-    {
-        TopologyBuilder builder = new TopologyBuilder();
 
         // producer <--> consumer subscription
         source.subscribe(operators[0]);
@@ -44,9 +39,25 @@ public class Pipeline implements Serializable
                 operators[i].subscribe(sink);
             else
                 operators[i].subscribe(operators[i + 1]);
+    }
+
+    public void executeTopologyWithoutStorm()
+    {
+        while (true)
+        {
+            KV<Integer, Double> subresult = (KV) source.next(null);
+            for (int i = 0; i < this.operators.length; i++)
+                subresult = (KV) this.operators[i].next(subresult);
+            sink.next(subresult);
+        }
+    }
+
+    public StormTopology getStormTopology()
+    {
+        TopologyBuilder builder = new TopologyBuilder();
 
         BaseRichSpout source = generateSpout(this.source);
-        BaseBasicBolt[] operators = new BaseBasicBolt[this.operators.length + 1];
+        BaseBasicBolt[] operators = new BaseBasicBolt[this.operators.length];
         for (int i = 0; i < this.operators.length; i++)
             operators[i] = generateOperator(this.operators[i]);
         BaseBasicBolt sink = generateSink(this.sink);
