@@ -15,78 +15,13 @@ public class Runner
 {
     public static void main(String[] args)
     {
-        IProducer source = NodesFactory.createSource(new IActionSource<KV<Integer, Double>>()
-        {
-            private int number = 0;
-            private Random r = new Random();
+        IProducer source = NodesFactory.createSource(() -> (new KV<Integer, Double>(0, new Random().nextDouble() * 2.5)));
+        Operator multiplier = NodesFactory.createMap((KV<Integer, Double> x) -> new KV<Integer, Double>(x.getK(), 2 * x.getV()));
+        //Operator filter = NodesFactory.createFilter((KV<Integer, Double> x) -> x.getV() > 1);
+        //Operator sum = NodesFactory.createFold(0, (x, y) -> x + y);
+        IConsumer printer = NodesFactory.createSink();
 
-            @Override
-            public KV<Integer, Double> process()
-            {
-                double measurement = r.nextDouble() * 2.5;
-
-                return new KV<Integer, Double>(number++, measurement);
-            }
-        });
-        Operator multiplier = NodesFactory.createOperator(new IActionOperator<KV<Integer, Double>>()
-        {
-            @Override
-            public KV<Integer, Double> process(KV<Integer, Double> item)
-            {
-                return new KV<Integer,Double>(item.getK(), 2 * item.getV());
-            }
-        });
-        Operator interpolator = NodesFactory.createOperator(new IActionOperator<KV<Integer, Double>>()
-        {
-            private double previous = 0;
-
-            @Override
-            public KV<Integer, Double> process(KV<Integer, Double> item)
-            {
-                double measurement = item.getV();
-                double interpolatedValue = (previous + measurement) / 2;
-                previous = measurement;
-
-                return new KV<>(0,interpolatedValue);
-            }
-        });
-        Operator average = NodesFactory.createOperator(new IActionOperator<KV<Integer, Double>>()
-        {
-            private long lastSentAt = 0;
-            private double runningSum = 0;
-            private long numberOfItems = 0;
-            private int resultNumber = 0;
-
-            private static final int INTERVAL = 1000;
-
-            @Override
-            public KV<Integer, Double> process(KV<Integer, Double> item)
-            {
-                runningSum += item.getV();
-                numberOfItems++;
-
-                long currentTime = new Date().getTime();
-                if (currentTime - lastSentAt >= INTERVAL)
-                {
-                    lastSentAt = currentTime;
-                    double result = runningSum / (double)numberOfItems;
-
-                    return new KV<Integer, Double>(resultNumber++, result);
-                }
-
-                return null;
-            }
-        });
-        IConsumer printer = NodesFactory.createSink(new IActionSink<KV<Integer,Double>>()
-        {
-            @Override
-            public void process(KV<Integer, Double> item)
-            {
-                System.out.println(item.getV());
-            }
-        });
-
-        Pipeline pipeline = new Pipeline(source, printer, multiplier, interpolator, average);
+        Pipeline pipeline = new Pipeline(source, printer, multiplier);
 
         StormTopology topology = pipeline.getStormTopology();
         LocalCluster cluster = new LocalCluster();

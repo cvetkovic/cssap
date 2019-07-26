@@ -32,4 +32,10 @@ public class KV<K,V> implements Serializable
     {
         this.v = v;
     }
+
+    @Override
+    public String toString()
+    {
+        return Double.toString((Double)v);
+    }
 }

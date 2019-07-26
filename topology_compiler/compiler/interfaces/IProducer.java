@@ -4,6 +4,6 @@ import java.io.Serializable;
 
 public interface IProducer<T> extends Serializable
 {
-    T next(T item);
+    T produce();
     void subscribe(IConsumer<T> consumer);
 }

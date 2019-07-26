@@ -45,7 +45,7 @@ public class Pipeline implements Serializable
     {
         while (true)
         {
-            KV<Integer, Double> subresult = (KV) source.next(null);
+            KV<Integer, Double> subresult = (KV) source.produce();
             for (int i = 0; i < this.operators.length; i++)
                 subresult = (KV) this.operators[i].next(subresult);
             sink.next(subresult);
@@ -96,7 +96,7 @@ public class Pipeline implements Serializable
             @Override
             public void nextTuple()
             {
-                KV<Integer, Double> kv = (KV<Integer, Double>) producer.next(null);
+                KV<Integer, Double> kv = (KV<Integer, Double>) producer.produce();
                 if (kv != null)
                     collector.emit(new Values(kv.getK(), kv.getV()));
             }
