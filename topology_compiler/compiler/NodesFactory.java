@@ -1,6 +1,9 @@
 package compiler;
 
 import compiler.interfaces.*;
+import compiler.interfaces.lambda.Function0;
+import compiler.interfaces.lambda.Function1;
+import compiler.interfaces.lambda.Function2;
 
 import java.util.function.Predicate;
 
@@ -11,15 +14,21 @@ public class NodesFactory
         return new IProducer<T>()
         {
             private IConsumer<T> consumer;
+            private ICallback<T> callbackInterface;
 
             @Override
-            public T produce()
+            public void next()
             {
-                T generatedItem = code.call();
-                /*if (generatedItem != null)
-                    consumer.produce(generatedItem);*/
+                //consumer.next(code.call());
 
-                return generatedItem;
+                // here callback has been implemented instead of the upper line
+                callbackInterface.callback(code.call());
+            }
+
+            @Override
+            public void setCallback(ICallback<T> callback)
+            {
+                this.callbackInterface = callback;
             }
 
             @Override
@@ -30,54 +39,131 @@ public class NodesFactory
         };
     }
 
-    public static<T,R> Operator<T> createMap(Function1<T,T> code)
+    public static <A, B> Operator<A, B> createMap(Function1<A, B> code)
     {
-        return new Operator<T>()
+        return createMap(1, code);
+    }
+
+    public static <A, B> Operator<A, B> createMap(int parallelismHint, Function1<A, B> code)
+    {
+        return new Operator<A, B>(parallelismHint)
         {
-            private IConsumer<T> consumer;
+            private IConsumer<B> consumer;
 
             @Override
-            public T next(T item)
+            public void subscribe(IConsumer<B> consumer)
             {
-                T generatedItem = code.call(item);
-                /*if (generatedItem != null)
-                    consumer.produce(generatedItem);*/
-
-                return generatedItem;
+                this.consumer = consumer;
             }
 
             @Override
-            public void subscribe(IConsumer<T> consumer)
+            public void next(A item)
             {
-                this.consumer = consumer;
+                invokeCallback(code.call(item));
             }
         };
     }
 
-    public static<T,R> Operator<T> createFilter(Predicate<T> predicate)
+    public static <A> Operator<A, A> createFilter(Predicate<A> predicate)
     {
-        return new Operator<T>()
+        return createFilter(1, predicate);
+    }
+
+    public static <A> Operator<A, A> createFilter(int parallelismHint, Predicate<A> predicate)
+    {
+        return new Operator<A, A>(parallelismHint)
         {
-            private IConsumer<T> consumer;
+            private IConsumer<A> consumer;
 
             @Override
-            public T next(T item)
+            public void subscribe(IConsumer<A> consumer)
+            {
+                this.consumer = consumer;
+            }
+
+            @Override
+            public void next(A item)
             {
                 if (predicate.test(item))
-                    return item;
-                else
-                    return null;
-            }
-
-            @Override
-            public void subscribe(IConsumer<T> consumer)
-            {
-                this.consumer = consumer;
+                    invokeCallback(item);
             }
         };
     }
 
-    public static<T> Operator<T> createFold(T init, Function2<T,T,T> function)
+    public static <A, B, C> Operator<A, C> composeOperator(Operator<A, B> operator1, Operator<B, C> operator2)
+    {
+        return composeOperator(1, operator1, operator2);
+    }
+
+    public static <A, B, C> Operator<A, C> composeOperator(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2)
+    {
+        return new Operator<A, C>(parallelismHint)
+        {
+            @Override
+            public void subscribe(IConsumer<C> consumer)
+            {
+                operator2.subscribe(consumer);
+                IConsumer<B> midpoint = new IConsumer<B>()
+                {
+                    @Override
+                    public void next(B item)
+                    {
+                        operator2.next(item);
+                    }
+                };
+                operator1.subscribe(midpoint);
+            }
+
+            @Override
+            public void next(A item)
+            {
+                operator1.next(item);
+            }
+        };
+    }
+
+    public static <A, B, C, D> Operator<A, D> composeOperator(Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
+    {
+        return composeOperator(1, operator1, operator2, operator3);
+    }
+
+    public static <A, B, C, D> Operator<A, D> composeOperator(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
+    {
+        return new Operator<A, D>(parallelismHint)
+        {
+            @Override
+            public void subscribe(IConsumer<D> consumer)
+            {
+                operator3.subscribe(consumer);
+                IConsumer<C> thirdPoint = new IConsumer<C>()
+                {
+                    @Override
+                    public void next(C item)
+                    {
+                        operator3.next(item);
+                    }
+                };
+                IConsumer<B> secondPoint = new IConsumer<B>()
+                {
+                    @Override
+                    public void next(B item)
+                    {
+                        operator2.next(item);
+                    }
+                };
+                operator1.subscribe(secondPoint);
+                operator2.subscribe(thirdPoint);
+            }
+
+            @Override
+            public void next(A item)
+            {
+                operator1.next(item);
+            }
+        };
+    }
+
+    /*public static<T> Operator<T> createFold(T init, Function2<T,T,T> function)
     {
         return new Operator<T>()
         {
@@ -85,9 +171,9 @@ public class NodesFactory
             private T agg = init;
 
             @Override
-            public T next(T item)
+            public void next(T item)
             {
-                return function.call(agg, item);
+                consumer.next(function.call(agg, item));
             }
 
             @Override
@@ -96,17 +182,16 @@ public class NodesFactory
                 this.consumer = consumer;
             }
         };
-    }
+    }*/
 
-    public static<T> IConsumer<T> createSink()
+    public static <T> IConsumer<T> createSink()
     {
         return new IConsumer<T>()
         {
             @Override
-            public T next(T item)
+            public void next(T item)
             {
                 System.out.println(item);
-                return null;
             }
         };
     }
