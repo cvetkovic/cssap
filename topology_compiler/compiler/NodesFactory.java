@@ -4,8 +4,7 @@ import compiler.interfaces.*;
 import compiler.interfaces.lambda.Function0;
 import compiler.interfaces.lambda.Function1;
 import compiler.interfaces.lambda.Function2;
-
-import java.util.function.Predicate;
+import compiler.interfaces.lambda.SPredicate;
 
 public class NodesFactory
 {
@@ -19,9 +18,6 @@ public class NodesFactory
             @Override
             public void next()
             {
-                //consumer.next(code.call());
-
-                // here callback has been implemented instead of the upper line
                 callbackInterface.callback(code.call());
             }
 
@@ -64,12 +60,12 @@ public class NodesFactory
         };
     }
 
-    public static <A> Operator<A, A> createFilter(Predicate<A> predicate)
+    public static <A> Operator<A, A> createFilter(SPredicate<A> predicate)
     {
         return createFilter(1, predicate);
     }
 
-    public static <A> Operator<A, A> createFilter(int parallelismHint, Predicate<A> predicate)
+    public static <A> Operator<A, A> createFilter(int parallelismHint, SPredicate<A> predicate)
     {
         return new Operator<A, A>(parallelismHint)
         {
@@ -102,16 +98,11 @@ public class NodesFactory
             @Override
             public void subscribe(IConsumer<C> consumer)
             {
+                operator1.subscribe(operator2);
                 operator2.subscribe(consumer);
-                IConsumer<B> midpoint = new IConsumer<B>()
-                {
-                    @Override
-                    public void next(B item)
-                    {
-                        operator2.next(item);
-                    }
-                };
-                operator1.subscribe(midpoint);
+
+                operator1.setCallback((item) -> operator2.next(item));
+                operator2.setCallback((item) -> getCallback().callback(item));
             }
 
             @Override
@@ -134,25 +125,13 @@ public class NodesFactory
             @Override
             public void subscribe(IConsumer<D> consumer)
             {
+                operator1.subscribe(operator2);
+                operator2.subscribe(operator3);
                 operator3.subscribe(consumer);
-                IConsumer<C> thirdPoint = new IConsumer<C>()
-                {
-                    @Override
-                    public void next(C item)
-                    {
-                        operator3.next(item);
-                    }
-                };
-                IConsumer<B> secondPoint = new IConsumer<B>()
-                {
-                    @Override
-                    public void next(B item)
-                    {
-                        operator2.next(item);
-                    }
-                };
-                operator1.subscribe(secondPoint);
-                operator2.subscribe(thirdPoint);
+
+                operator1.setCallback((item) -> operator2.next(item));
+                operator2.setCallback((item) -> operator3.next(item));
+                operator3.setCallback((item) -> getCallback().callback(item));
             }
 
             @Override
@@ -163,26 +142,27 @@ public class NodesFactory
         };
     }
 
-    /*public static<T> Operator<T> createFold(T init, Function2<T,T,T> function)
+    public static <A, B> Operator<A, B> createFold(B initial, Function2<B, A, B> function)
     {
-        return new Operator<T>()
+        return new Operator<A, B>(1)
         {
-            private IConsumer<T> consumer;
-            private T agg = init;
+            private IConsumer<B> consumer;
+            private B accumulator = initial;
 
             @Override
-            public void next(T item)
+            public void next(A item)
             {
-                consumer.next(function.call(agg, item));
+                accumulator = function.call(accumulator, item);
+                invokeCallback(accumulator);
             }
 
             @Override
-            public void subscribe(IConsumer<T> consumer)
+            public void subscribe(IConsumer<B> consumer)
             {
                 this.consumer = consumer;
             }
         };
-    }*/
+    }
 
     public static <T> IConsumer<T> createSink()
     {

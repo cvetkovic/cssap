@@ -1,6 +1,8 @@
 package compiler.interfaces;
 
 import java.io.Serializable;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 
 public abstract class Operator<A, B> implements Serializable, IConsumer<A>
 {
@@ -11,27 +13,28 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>
     {
         this.parallelismHint = parallelismHint;
     }
+    public int getParallelismHint()
+    {
+        return parallelismHint;
+    }
 
     public abstract void next(A item);
     public abstract void subscribe(IConsumer<B> consumer);
 
     public void setCallback(ICallback<B> callback) { this.callback = callback; }
+    public ICallback<B> getCallback() { return callback; }
+
     public void invokeCallback(B item) { callback.callback(item);}
 
     // reflection for pipeline merging purposes
-    A a;
-    B b;
-
-    public Class getInputClassType()
+    public static<A,B> Type getInputClassType(Operator<A,B> operator)
     {
-        return a.getClass();
+        ParameterizedType type = (ParameterizedType)operator.getClass().getGenericSuperclass();
+        return type.getActualTypeArguments()[0];
     }
-    public Class getOutputClassType()
+    public static<A,B> Type getOutputClassType(Operator<A,B> operator)
     {
-        return b.getClass();
-    }
-    public int getParallelismHint()
-    {
-        return parallelismHint;
+        ParameterizedType type = (ParameterizedType)operator.getClass().getGenericSuperclass();
+        return type.getActualTypeArguments()[1];
     }
 }
