@@ -1,7 +1,6 @@
 package compiler;
 
 import compiler.interfaces.*;
-import compiler.structures.KV;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
@@ -46,22 +45,12 @@ public class Pipeline implements Serializable
     public void executeTopologyWithoutStorm(IProducer producer, IConsumer consumer)
     {
         producer.subscribe(operators[0]);
-        producer.setCallback(item -> operators[0].next(item));
 
         for (int i = 0; i < this.operators.length; i++)
-        {
             if (i < this.operators.length - 1)
-            {
-                final int j = i;
                 this.operators[i].subscribe(this.operators[i + 1]);
-                this.operators[i].setCallback(item -> operators[j + 1].next(item));
-            }
             else
-            {
                 this.operators[i].subscribe(consumer);
-                this.operators[i].setCallback(item -> consumer.next(item));
-            }
-        }
 
         while (true)
             producer.next();
@@ -71,13 +60,10 @@ public class Pipeline implements Serializable
     {
         TopologyBuilder builder = new TopologyBuilder();
 
-        BaseRichSpout source = generateSpout(producer, this.operators[0]);
+        BaseRichSpout source = generateSpout(producer);
         BaseBasicBolt[] operators = new BaseBasicBolt[this.operators.length];
         for (int i = 0; i < this.operators.length; i++)
-            if (i < this.operators.length - 1)
-                operators[i] = generateOperator(this.operators[i], this.operators[i + 1]);
-            else
-                operators[i] = generateOperator(this.operators[i], consumer);
+            operators[i] = generateOperator(this.operators[i]);
         BaseBasicBolt sink = generateSink(consumer);
 
         ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -101,28 +87,18 @@ public class Pipeline implements Serializable
         return builder.createTopology();
     }
 
-    private BaseRichSpout generateSpout(IProducer producer, IConsumer consumer)
+    private BaseRichSpout generateSpout(IProducer producer)
     {
         return new BaseRichSpout()
         {
-            SpoutOutputCollector collector;
-            ICallback callback;
+            private SpoutOutputCollector collector;
+            private IConsumer consumer = item -> collector.emit(new Values(item));
 
             @Override
             public void open(Map conf, TopologyContext context, SpoutOutputCollector collector)
             {
                 this.collector = collector;
                 producer.subscribe(consumer);
-
-                callback = new ICallback()
-                {
-                    @Override
-                    public void callback(Object item)
-                    {
-                        collector.emit(new Values(item));
-                    }
-                };
-                producer.setCallback(callback);
             }
 
             @Override
@@ -139,16 +115,19 @@ public class Pipeline implements Serializable
         };
     }
 
-    private BaseBasicBolt generateOperator(Operator operator, IConsumer consumer)
+    private BaseBasicBolt generateOperator(Operator operator)
     {
         return new BaseBasicBolt()
         {
+            private BasicOutputCollector collector;
+            private IConsumer consumer = item -> collector.emit(new Values(item));
+
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
-                operator.setCallback((item) -> collector.emit(new Values(item)));
-
+                this.collector = collector;
                 Object item = input.getValueByField("data");
+
                 operator.next(item);
             }
 

@@ -13,18 +13,11 @@ public class NodesFactory
         return new IProducer<T>()
         {
             private IConsumer<T> consumer;
-            private ICallback<T> callbackInterface;
 
             @Override
             public void next()
             {
-                callbackInterface.callback(code.call());
-            }
-
-            @Override
-            public void setCallback(ICallback<T> callback)
-            {
-                this.callbackInterface = callback;
+                consumer.next(code.call());
             }
 
             @Override
@@ -55,7 +48,7 @@ public class NodesFactory
             @Override
             public void next(A item)
             {
-                invokeCallback(code.call(item));
+                consumer.next(code.call(item));
             }
         };
     }
@@ -81,7 +74,7 @@ public class NodesFactory
             public void next(A item)
             {
                 if (predicate.test(item))
-                    invokeCallback(item);
+                    consumer.next(item);
             }
         };
     }
@@ -100,9 +93,6 @@ public class NodesFactory
             {
                 operator1.subscribe(operator2);
                 operator2.subscribe(consumer);
-
-                operator1.setCallback((item) -> operator2.next(item));
-                operator2.setCallback((item) -> getCallback().callback(item));
             }
 
             @Override
@@ -128,10 +118,6 @@ public class NodesFactory
                 operator1.subscribe(operator2);
                 operator2.subscribe(operator3);
                 operator3.subscribe(consumer);
-
-                operator1.setCallback((item) -> operator2.next(item));
-                operator2.setCallback((item) -> operator3.next(item));
-                operator3.setCallback((item) -> getCallback().callback(item));
             }
 
             @Override
@@ -153,7 +139,7 @@ public class NodesFactory
             public void next(A item)
             {
                 accumulator = function.call(accumulator, item);
-                invokeCallback(accumulator);
+                consumer.next(accumulator);
             }
 
             @Override
@@ -166,13 +152,6 @@ public class NodesFactory
 
     public static <T> IConsumer<T> createSink()
     {
-        return new IConsumer<T>()
-        {
-            @Override
-            public void next(T item)
-            {
-                System.out.println(item);
-            }
-        };
+        return (IConsumer<T>) item -> System.out.println(item);
     }
 }
