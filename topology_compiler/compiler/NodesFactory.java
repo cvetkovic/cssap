@@ -12,18 +12,26 @@ import java.util.List;
 
 public class NodesFactory
 {
-    public static <T> IProducer<T> createSource(Function0<T> code)
+    public static <T> IProducer<T> createSource()
     {
         return new IProducer<T>()
         {
             private List<IConsumer<T>> consumers = new LinkedList<>();
 
             @Override
-            public void next()
+            public void next(T item)
             {
-                T item = code.call();
                 for (IConsumer<T> c : consumers)
                     c.next(item);
+            }
+
+            @Override
+            public void next(IConsumer<T> rx, T item)
+            {
+                if (consumers.contains(rx))
+                    rx.next(item);
+                else
+                    throw new RuntimeException("Operator was not subscribed to provided consumer.");
             }
 
             @Override

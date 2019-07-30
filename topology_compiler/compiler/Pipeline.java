@@ -1,6 +1,8 @@
 package compiler;
 
 import compiler.interfaces.*;
+import compiler.interfaces.lambda.Function;
+import compiler.interfaces.lambda.Function0;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
@@ -41,7 +43,7 @@ public class Pipeline implements Serializable
                 operators[i++] = o;
     }
 
-    public void executeTopologyWithoutStorm(IProducer producer, IConsumer consumer)
+    public void executeTopologyWithoutStorm(Function0 code, IProducer producer, IConsumer consumer)
     {
         producer.subscribe(operators[0]);
 
@@ -52,14 +54,14 @@ public class Pipeline implements Serializable
                 this.operators[i].subscribe(consumer);
 
         while (true)
-            producer.next();
+            producer.next(code.call());
     }
 
-    public StormTopology getStormTopology(IProducer producer, IConsumer consumer)
+    public StormTopology getStormTopology(Function0 code, IProducer producer, IConsumer consumer)
     {
         TopologyBuilder builder = new TopologyBuilder();
 
-        BaseRichSpout source = generateSpout(producer);
+        BaseRichSpout source = generateSpout(code, producer);
         BaseBasicBolt[] operators = new BaseBasicBolt[this.operators.length];
         for (int i = 0; i < this.operators.length; i++)
             operators[i] = generateOperator(this.operators[i]);
@@ -86,7 +88,7 @@ public class Pipeline implements Serializable
         return builder.createTopology();
     }
 
-    private BaseRichSpout generateSpout(IProducer producer)
+    private BaseRichSpout generateSpout(Function0 code, IProducer producer)
     {
         return new BaseRichSpout()
         {
@@ -103,7 +105,7 @@ public class Pipeline implements Serializable
             @Override
             public void nextTuple()
             {
-                producer.next();
+                producer.next(code.call());
             }
 
             @Override
