@@ -6,6 +6,6 @@ Houston, Texas
 
 Author:   Lazar M. Cvetković (l.cvetkovic.997@gmail.com)
 
-Menthor:  Konstantinos Mamouras (mamouras@rice.edu)
+Mentor:  Konstantinos Mamouras (mamouras@rice.edu)
 
 Date:     Summer 2019
