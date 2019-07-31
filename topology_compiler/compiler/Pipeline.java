@@ -1,7 +1,8 @@
 package compiler;
 
-import compiler.interfaces.*;
-import compiler.interfaces.lambda.Function;
+import compiler.interfaces.IConsumer;
+import compiler.interfaces.IProducer;
+import compiler.interfaces.Operator;
 import compiler.interfaces.lambda.Function0;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.spout.SpoutOutputCollector;
@@ -45,16 +46,16 @@ public class Pipeline implements Serializable
 
     public void executeTopologyWithoutStorm(Function0 code, IProducer producer, IConsumer consumer)
     {
-        producer.subscribe(operators[0]);
+        producer.subscribe(1, operators[0]);
 
         for (int i = 0; i < this.operators.length; i++)
             if (i < this.operators.length - 1)
-                this.operators[i].subscribe(this.operators[i + 1]);
+                this.operators[i].subscribe(1, this.operators[i + 1]);
             else
-                this.operators[i].subscribe(consumer);
+                this.operators[i].subscribe(1, consumer);
 
         while (true)
-            producer.next(code.call());
+            producer.next(1, code.call());
     }
 
     public StormTopology getStormTopology(Function0 code, IProducer producer, IConsumer consumer)
@@ -93,19 +94,26 @@ public class Pipeline implements Serializable
         return new BaseRichSpout()
         {
             private SpoutOutputCollector collector;
-            private IConsumer consumer = item -> collector.emit(new Values(item));
+            private IConsumer consumer = new IConsumer()
+            {
+                @Override
+                public void next(int channelNumber, Object item)
+                {
+                    collector.emit(new Values(item));
+                }
+            };
 
             @Override
             public void open(Map conf, TopologyContext context, SpoutOutputCollector collector)
             {
                 this.collector = collector;
-                producer.subscribe(consumer);
+                producer.subscribe(1, consumer);
             }
 
             @Override
             public void nextTuple()
             {
-                producer.next(code.call());
+                producer.next(1, code.call());
             }
 
             @Override
@@ -121,7 +129,14 @@ public class Pipeline implements Serializable
         return new BaseBasicBolt()
         {
             private BasicOutputCollector collector;
-            private IConsumer consumer = item -> collector.emit(new Values(item));
+            private IConsumer consumer = new IConsumer()
+            {
+                @Override
+                public void next(int channelNumber, Object item)
+                {
+                    collector.emit(new Values(item));
+                }
+            };
 
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
@@ -129,7 +144,7 @@ public class Pipeline implements Serializable
                 this.collector = collector;
                 Object item = input.getValueByField("data");
 
-                operator.next(item);
+                operator.next(1, item);
             }
 
             @Override
@@ -142,7 +157,7 @@ public class Pipeline implements Serializable
             public void prepare(Map stormConf, TopologyContext context)
             {
                 super.prepare(stormConf, context);
-                operator.subscribe(consumer);
+                operator.subscribe(1, consumer);
             }
         };
     }
@@ -155,7 +170,7 @@ public class Pipeline implements Serializable
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 Object item = input.getValueByField("data");
-                consumer.next(item);
+                consumer.next(1, item);
             }
 
             @Override

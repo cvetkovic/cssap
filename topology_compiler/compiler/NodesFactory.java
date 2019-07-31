@@ -1,14 +1,15 @@
 package compiler;
 
-import compiler.interfaces.*;
-import compiler.interfaces.lambda.Function0;
+import compiler.interfaces.IConsumer;
+import compiler.interfaces.IProducer;
+import compiler.interfaces.Operator;
+import compiler.interfaces.lambda.Endpoint;
 import compiler.interfaces.lambda.Function1;
 import compiler.interfaces.lambda.Function2;
 import compiler.interfaces.lambda.SPredicate;
 
-import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 public class NodesFactory
 {
@@ -16,36 +17,24 @@ public class NodesFactory
     {
         return new IProducer<T>()
         {
-            private List<IConsumer<T>> consumers = new LinkedList<>();
+            private Map<Integer, IConsumer<T>> consumers = new HashMap<>();
 
             @Override
-            public void next(T item)
+            public void next(int channelNumber, T item)
             {
-                for (IConsumer<T> c : consumers)
-                    c.next(item);
-            }
-
-            @Override
-            public void next(IConsumer<T> rx, T item)
-            {
-                if (consumers.contains(rx))
-                    rx.next(item);
+                if (consumers.containsKey(channelNumber))
+                    consumers.get(channelNumber).next(channelNumber, item);
                 else
-                    throw new RuntimeException("Operator was not subscribed to provided consumer.");
+                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
 
             @Override
-            public void subscribe(IConsumer<T> consumer)
+            public void subscribe(int channelNumber, IConsumer<T> consumer)
             {
-                if (!this.consumers.contains(consumer))
-                    this.consumers.add(consumer);
-            }
+                if (consumers.containsKey(channelNumber))
+                    throw new RuntimeException("Channel with the same identifier already exists in the given operator.");
 
-            @Override
-            public void subscribe(List<IConsumer<T>> consumerList)
-            {
-                consumers.removeIf(p -> consumerList.contains(p));
-                consumers.addAll(consumerList);
+                consumers.put(channelNumber, consumer);
             }
         };
     }
@@ -60,22 +49,21 @@ public class NodesFactory
         return new Operator<A, B>(parallelismHint)
         {
             @Override
-            public void next(A item)
+            public void subscribe(int channelNumber, IConsumer<B> consumer)
             {
-                B result = code.call(item);
-                for (IConsumer<B> c : consumers)
-                    c.next(result);
+                super.subscribe(1, consumer);
+
+                if (consumers.size() > 1)
+                    throw new RuntimeException("Fold operator can have only one input and one output.");
             }
 
             @Override
-            public void next(IConsumer<B> rx, A item)
+            public void next(int channelIdentifier, A item)
             {
-                if (consumers.contains(rx))
-                {
-                    rx.next(code.call(item));
-                }
+                if (consumers.containsKey(1))
+                    consumers.get(1).next(1, code.call(item));
                 else
-                    throw new RuntimeException("Operator was not subscribed to provided consumer.");
+                    throw new RuntimeException("Map operator is not subscribed to any consumer.");
             }
         };
     }
@@ -90,107 +78,86 @@ public class NodesFactory
         return new Operator<A, A>(parallelismHint)
         {
             @Override
-            public void next(A item)
+            public void subscribe(int channelNumber, IConsumer<A> consumer)
             {
-                if (predicate.test(item))
-                    for (IConsumer<A> c : consumers)
-                        c.next(item);
+                super.subscribe(1, consumer);
+
+                if (consumers.size() > 1)
+                    throw new RuntimeException("Fold operator can have only one input and one output.");
             }
 
             @Override
-            public void next(IConsumer<A> rx, A item)
+            public void next(int channelIdentifier, A item)
             {
-                if (consumers.contains(rx))
+                if (consumers.containsKey(1))
                 {
                     if (predicate.test(item))
-                        rx.next(item);
+                        consumers.get(1).next(1, item);
                 }
                 else
-                    throw new RuntimeException("Operator was not subscribed to provided consumer.");
+                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
         };
     }
 
-    public static <A, B, C> Operator<A, C> composeOperator(Operator<A, B> operator1, Operator<B, C> operator2)
+    public static <A, B, C> Operator<A, C> createStreamComposition(Operator<A, B> operator1, Operator<B, C> operator2)
     {
-        return composeOperator(1, operator1, operator2);
+        return createStreamComposition(1, operator1, operator2);
     }
 
-    public static <A, B, C> Operator<A, C> composeOperator(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2)
+    public static <A, B, C> Operator<A, C> createStreamComposition(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2)
     {
         return new Operator<A, C>(parallelismHint)
         {
             @Override
-            public void subscribe(IConsumer<C> consumer)
+            public void subscribe(int channelNumber, IConsumer<C> consumer)
             {
-                operator1.subscribe(operator2);
-                operator2.subscribe(consumer);
+                /*if (operator1.getArity() != operator2.getConsumers().size())
+                    throw new RuntimeException("Arity of the operators passed to compose do not match.");*/
+
+                // ?what if some channel goes outside of composition?
+                operator1.clearSubscription();
+                operator2.clearSubscription();
+
+                operator1.subscribe(channelNumber, operator2);
+                operator2.subscribe(channelNumber, consumer);
             }
 
             @Override
-            public void subscribe(List<IConsumer<C>> consumers)
+            public void next(int channelIdentifier, A item)
             {
-                operator1.subscribe(operator2);
-                operator2.subscribe(consumers);
-            }
-
-            @Override
-            public void next(A item)
-            {
-                operator1.next(item);
-            }
-
-            @Override
-            public void next(IConsumer<C> rx, A item)
-            {
-                List<IConsumer<C>> ref = operator2.getConsumers();
-                operator2.setConsumers(Collections.singletonList(rx));
-                operator1.next(item);
-
-                operator2.setConsumers(ref);
+                if (operator1.getConsumers().containsKey(channelIdentifier))
+                    operator1.next(channelIdentifier, item);
+                else
+                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
         };
     }
 
-    public static <A, B, C, D> Operator<A, D> composeOperator(Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
+    public static <A, B, C, D> Operator<A, D> createStreamComposition(Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
     {
-        return composeOperator(1, operator1, operator2, operator3);
+        return createStreamComposition(1, operator1, operator2, operator3);
     }
 
-    public static <A, B, C, D> Operator<A, D> composeOperator(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
+    public static <A, B, C, D> Operator<A, D> createStreamComposition(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
     {
         return new Operator<A, D>(parallelismHint)
         {
             @Override
-            public void subscribe(IConsumer<D> consumer)
+            public void subscribe(int channelNumber, IConsumer<D> consumer)
             {
-                operator1.subscribe(operator2);
-                operator2.subscribe(operator3);
-                operator3.subscribe(consumer);
+                operator1.subscribe(channelNumber, operator2);
+                operator2.subscribe(channelNumber, operator3);
+                operator3.subscribe(channelNumber, consumer);
             }
 
             @Override
-            public void subscribe(List<IConsumer<D>> consumers)
+            public void next(int channelIdentifier, A item)
             {
-                operator1.subscribe(operator2);
-                operator2.subscribe(operator3);
-                operator3.subscribe(consumers);
-            }
-
-            @Override
-            public void next(A item)
-            {
-                operator1.next(item);
-            }
-
-            @Override
-            public void next(IConsumer<D> rx, A item)
-            {
-                List<IConsumer<D>> ref = operator3.getConsumers();
-                operator3.setConsumers(Collections.singletonList(rx));
-                operator1.next(item);
-
-                operator3.setConsumers(ref);
+                if (operator1.getConsumers().containsKey(channelIdentifier))
+                    operator1.next(channelIdentifier, item);
+                else
+                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
         };
     }
@@ -202,30 +169,107 @@ public class NodesFactory
             private B accumulator = initial;
 
             @Override
-            public void next(A item)
+            public void subscribe(int channelNumber, IConsumer<B> consumer)
             {
-                accumulator = function.call(accumulator, item);
-                for (IConsumer<B> c : consumers)
-                    c.next(accumulator);
+                super.subscribe(1, consumer);
+
+                if (consumers.size() > 1)
+                    throw new RuntimeException("Fold operator can have only one input and one output.");
             }
 
             @Override
-            public void next(IConsumer<B> rx, A item)
+            public void next(int channelIdentifier, A item)
             {
-                if (consumers.contains(rx))
+                if (consumers.containsKey(1))
                 {
                     accumulator = function.call(accumulator, item);
-                    for (IConsumer<B> c : consumers)
-                        c.next(accumulator);
+                    consumers.get(1).next(1, accumulator);
                 }
                 else
-                    throw new RuntimeException("Operator was not subscribed to provided consumer.");
+                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
         };
     }
 
-    public static <T> IConsumer<T> createSink()
+    public static <A> Operator<A, A> createCopy()
     {
-        return (IConsumer<T>) item -> System.out.println(item);
+        return new Operator<A, A>(1)
+        {
+            @Override
+            public void next(int channelIdentifier, A item)
+            {
+                for (Map.Entry<Integer, IConsumer<A>> key : consumers.entrySet())
+                    key.getValue().next(key.getKey(), item);
+            }
+        };
+    }
+
+    public static <A> Operator<A, A> createMerge()
+    {
+        return new Operator<A, A>(1)
+        {
+            @Override
+            public void next(int channelIdentifier, A item)
+            {
+                consumers.get(channelIdentifier).next(channelIdentifier, item);
+            }
+        };
+    }
+
+    public static <A> Operator<A, A> createSplitterRoundRobin()
+    {
+        return new Operator<A, A>(1)
+        {
+            private int lastSentTo = 0;
+            private Integer[] channelNumbers;
+
+            @Override
+            public void subscribe(int channelNumber, IConsumer<A> consumer)
+            {
+                super.subscribe(channelNumber, consumer);
+                channelNumbers = consumers.keySet().toArray(new Integer[consumers.size()]);
+            }
+
+            @Override
+            public void next(int channelIdentifier, A item)
+            {
+                consumers.get(channelNumbers[lastSentTo]).next(channelIdentifier, item);
+                lastSentTo = (lastSentTo + 1) % channelNumbers.length;
+            }
+        };
+    }
+
+    public static <T> IConsumer<T> createSink(Endpoint<T> code)
+    {
+        return (IConsumer<T>) (channelNumber, item) -> code.call(item);
+    }
+
+    public static <T> Operator<T,T> createParallelComposition(Operator<T,T> operator1, Operator<T,T> operator2)
+    {
+        return new Operator<T, T>(1)
+        {
+            @Override
+            public void subscribe(int channelNumber, IConsumer<T> consumer)
+            {
+                super.subscribe(channelNumber, consumer);
+
+                int id = 1;
+                for (Map.Entry<Integer, IConsumer<T>> e : operator1.getConsumers().entrySet())
+                    consumers.put(id++, e.getValue());
+                for (Map.Entry<Integer, IConsumer<T>> e : operator2.getConsumers().entrySet())
+                    consumers.put(id++, e.getValue());
+            }
+
+            @Override
+            public void next(int channelIdentifier, T item)
+            {
+                int numberLeft = operator1.getArity();
+
+                if (channelIdentifier <= numberLeft)
+                    operator1.next(channelIdentifier, item);
+                else
+                    operator2.next(channelIdentifier - numberLeft, item);
+            }
+        };
     }
 }

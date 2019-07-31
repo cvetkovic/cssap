@@ -4,5 +4,5 @@ import java.io.Serializable;
 
 public interface IConsumer<T> extends Serializable
 {
-    void next(T item);
+    void next(int channelNumber, T item);
 }

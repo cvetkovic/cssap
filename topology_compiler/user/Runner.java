@@ -2,18 +2,94 @@ package user;
 
 import compiler.NodesFactory;
 import compiler.Pipeline;
-import compiler.interfaces.*;
+import compiler.interfaces.IConsumer;
+import compiler.interfaces.IProducer;
+import compiler.interfaces.Operator;
 import compiler.interfaces.lambda.Function0;
 import compiler.structures.KV;
-import org.apache.storm.Config;
-import org.apache.storm.LocalCluster;
-import org.apache.storm.generated.StormTopology;
 
 import java.util.Random;
 
 public class Runner
 {
     public static void main(String[] args)
+    {
+        mergeTest();
+    }
+
+    private static void mergeTest()
+    {
+        Function0 generator = () -> 1.0;
+
+        IProducer source = NodesFactory.createSource();
+        Operator copy = NodesFactory.createCopy();
+        Operator multiplierBy10 = NodesFactory.createFilter(1, (Double item) -> item > 0.5);
+        Operator multiplierBy1000 = NodesFactory.createMap(1, (Double item) -> item * 1000);
+        Operator merge = NodesFactory.createMerge();
+        IConsumer printer = NodesFactory.createSink((item) -> System.out.println(item));
+        IConsumer printerIndependent = NodesFactory.createSink((item) -> System.out.println("Independent printer: " + item));
+
+        source.subscribe(1, copy);
+        source.subscribe(2, printerIndependent);
+        copy.subscribe(1, multiplierBy10);
+        copy.subscribe(2, multiplierBy1000);
+        multiplierBy10.subscribe(1, merge);
+        multiplierBy1000.subscribe(1, merge);
+        merge.subscribe(1, printer);
+
+        for (int i = 0; i < 4; i++)
+        {
+            Object data = generator.call();
+            source.next(1, data);
+            source.next(2, data);
+        }
+    }
+
+    private static void roundRobinSplittingTest()
+    {
+        Function0 generator = () -> new Random().nextDouble() * 2.5;
+
+        IProducer source = NodesFactory.createSource();
+        Operator roundRobinSplitter = NodesFactory.createSplitterRoundRobin();
+        IConsumer printer1 = NodesFactory.createSink((item) -> System.out.println("Printer 1: " + item));
+        IConsumer printer2 = NodesFactory.createSink((item) -> System.out.println("Printer 2: " + item));
+        IConsumer printer3 = NodesFactory.createSink((item) -> System.out.println("Printer 3: " + item));
+
+        source.subscribe(1, roundRobinSplitter);
+        roundRobinSplitter.subscribe(1, printer1);
+        roundRobinSplitter.subscribe(2, printer2);
+        roundRobinSplitter.subscribe(3, printer3);
+
+        for (int i = 0; i < 10; i++)
+            source.next(1, generator.call());
+    }
+
+    private static void copyTest()
+    {
+        Function0 generator = () -> new Random().nextDouble() * 2.5;
+
+        IProducer source = NodesFactory.createSource();
+        Operator rootCopy = NodesFactory.createCopy();
+        Operator copy1 = new NodesFactory().createCopy();
+        Operator copy2 = new NodesFactory().createCopy();
+        IConsumer printer1 = NodesFactory.createSink((item) -> System.out.println("Printer 1: " + item));
+        IConsumer printer2 = NodesFactory.createSink((item) -> System.out.println("Printer 2: " + item));
+        IConsumer printer3 = NodesFactory.createSink((item) -> System.out.println("Printer 3: " + item));
+        IConsumer printer4 = NodesFactory.createSink((item) -> System.out.println("Printer 4: " + item));
+
+        source.subscribe(1, rootCopy);
+        rootCopy.subscribe(1, copy1);
+        rootCopy.subscribe(2, copy2);
+
+        copy1.subscribe(1, printer1);
+        copy1.subscribe(2, printer2);
+        copy2.subscribe(1, printer3);
+        copy2.subscribe(2, printer4);
+
+        source.next(1, generator.call());
+    }
+
+    private static void stormTest1()
     {
         Function0 generator = () -> (new KV<Integer, Double>(0, new Random().nextDouble() * 2.5));
 
@@ -22,19 +98,18 @@ public class Runner
         Operator multiplierBy3 = NodesFactory.createMap((KV<Integer, Double> x) -> new KV<Integer, Double>(x.getK(), 3 * x.getV()));
         Operator filter = NodesFactory.createFilter((KV<Integer, Double> x) -> x.getV() > 1);
         Operator sum = NodesFactory.createFold(0.0, (x, y) -> x + ((KV<Integer, Double>) y).getV());
-        IConsumer printer = NodesFactory.createSink(); // here we get double as a result
+        IConsumer printer = NodesFactory.createSink((item) -> System.out.println(item)); // here we get double as a result
 
-        Operator composedOperator1 = NodesFactory.composeOperator(multiplierBy2, multiplierBy3);
-        Operator composedOperator2 = NodesFactory.composeOperator(filter, sum);
+        Operator composedOperator1 = NodesFactory.createStreamComposition(multiplierBy2, multiplierBy3);
+        Operator composedOperator2 = NodesFactory.createStreamComposition(filter, sum);
         Pipeline pipeline = new Pipeline(new Pipeline(composedOperator1), new Pipeline(composedOperator2));
-        //Pipeline pipeline = new Pipeline(multiplierBy2, multiplierBy3, filter, sum);
 
-        //pipeline.executeTopologyWithoutStorm(generator, source, printer);
+        pipeline.executeTopologyWithoutStorm(generator, source, printer);
 
-        StormTopology topology = pipeline.getStormTopology(generator, source, printer);
+        /*StormTopology topology = pipeline.getStormTopology(generator, source, printer);
         LocalCluster cluster = new LocalCluster();
         Config config = new Config();
 
-        cluster.submitTopology("topologyCompiler", config, topology);
+        cluster.submitTopology("topologyCompiler", config, topology);*/
     }
 }

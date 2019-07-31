@@ -1,17 +1,13 @@
 package compiler.interfaces;
 
-import org.apache.storm.shade.com.google.common.collect.ImmutableList;
-
 import java.io.Serializable;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 public abstract class Operator<A, B> implements Serializable, IConsumer<A>
 {
     private int parallelismHint;
-    protected List<IConsumer<B>> consumers = new LinkedList<>();
+    protected Map<Integer, IConsumer<B>> consumers = new HashMap<>();
 
     public Operator(int parallelismHint)
     {
@@ -27,47 +23,46 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>
      * Broadcasts item to all the consumers that are subscribed to this operator
      * @param item An item to be sent
      */
-    public abstract void next(A item);
+    /*public void next(A item)
+    {
+        for (Integer key : consumers.keySet())
+            next(key, item);
+    }*/
 
     /**
      * Sends item to specific consumer that must be subscribed to this operator. Otherwise
      * RuntimeException will be thrown.
-     * @param rx Reference to consumer that should receive the element
+     * @param channelIdentifier Identifier of a channel through which item will be sent
      * @param item An item to be sent
      */
-    public abstract void next(IConsumer<B> rx, A item);
+    public abstract void next(int channelIdentifier, A item);
 
     /**
-     * Subscribes provided consumer to the operators by adding it to the list of subscribed consumers.
-     * Note that consumers that are already present in this operator and are tried to be added again
-     * won't be duplicated.
-     * @param consumer A consumer to subscribe to the operator
+     * Subscribes provided consumer to the operator and marks it with provided channel number.
+     * If the channel has already been taken an exception will be thrown.
+     * @param channelNumber Channel identifier
+     * @param consumer Reference to a consumer
      */
-    public void subscribe(IConsumer<B> consumer)
+    public void subscribe(int channelNumber, IConsumer<B> consumer)
     {
-        if (!this.consumers.contains(consumer))
-            this.consumers.add(consumer);
+        if (consumers.containsKey(channelNumber))
+            throw new RuntimeException("Channel with the same identifier already exists in the given operator.");
+
+        consumers.put(channelNumber, consumer);
     }
 
-    /**
-     * Subscribes provided consumers to the operators by adding them to the list of subscribed consumers.
-     * Note that consumers that are already present in this operator and are tried to be added again
-     * won't be duplicated.
-     * @param consumerList A list of consumers to subscribe to the operator
-     */
-    public void subscribe(List<IConsumer<B>> consumerList)
+    public void clearSubscription()
     {
-        consumerList.removeIf(p -> consumers.contains(p));
-        consumers.addAll(consumerList);
+        consumers.clear();
     }
 
-    public List<IConsumer<B>> getConsumers()
+    public Map<Integer, IConsumer<B>> getConsumers()
     {
         return consumers;
     }
 
-    public void setConsumers(List<IConsumer<B>> consumers)
+    public int getArity()
     {
-        this.consumers = consumers;
+        return consumers.size();
     }
 }
