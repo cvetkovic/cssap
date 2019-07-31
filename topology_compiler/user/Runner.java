@@ -14,7 +14,32 @@ public class Runner
 {
     public static void main(String[] args)
     {
-        mergeTest();
+        composeTest1();
+    }
+
+    private static void composeTest1()
+    {
+        Function0 generator = () -> 1.0;
+
+        IProducer source = NodesFactory.createSource();
+        Operator multiplierBy10 = NodesFactory.createMap(1, (Double item) -> item * 10);
+        Operator multiplierBy100 = NodesFactory.createMap(1, (Double item) -> item * 100);
+        Operator copy = NodesFactory.createCopy();
+        Operator composition = NodesFactory.createStreamComposition(1, multiplierBy10, multiplierBy100, copy);
+        IConsumer printer1 = NodesFactory.createSink((item) -> System.out.println("P1: " + item));
+        IConsumer printer2 = NodesFactory.createSink((item) -> System.out.println("P2: " + item));
+        IConsumer printer3 = NodesFactory.createSink((item) -> System.out.println("P3: " + item));
+
+        source.subscribe(1, composition);
+        composition.subscribe(1, printer1);
+        composition.subscribe(2, printer2);
+        composition.subscribe(3, printer3);
+
+        for (int i = 0; i < 4; i++)
+        {
+            Object data = generator.call();
+            source.next(1, data);
+        }
     }
 
     private static void mergeTest()
@@ -23,7 +48,7 @@ public class Runner
 
         IProducer source = NodesFactory.createSource();
         Operator copy = NodesFactory.createCopy();
-        Operator multiplierBy10 = NodesFactory.createFilter(1, (Double item) -> item > 0.5);
+        Operator filterBiggerThanHalf = NodesFactory.createFilter(1, (Double item) -> item > 0.5);
         Operator multiplierBy1000 = NodesFactory.createMap(1, (Double item) -> item * 1000);
         Operator merge = NodesFactory.createMerge();
         IConsumer printer = NodesFactory.createSink((item) -> System.out.println(item));
@@ -31,9 +56,9 @@ public class Runner
 
         source.subscribe(1, copy);
         source.subscribe(2, printerIndependent);
-        copy.subscribe(1, multiplierBy10);
+        copy.subscribe(1, filterBiggerThanHalf);
         copy.subscribe(2, multiplierBy1000);
-        multiplierBy10.subscribe(1, merge);
+        filterBiggerThanHalf.subscribe(1, merge);
         multiplierBy1000.subscribe(1, merge);
         merge.subscribe(1, printer);
 

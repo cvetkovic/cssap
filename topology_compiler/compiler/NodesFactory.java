@@ -107,17 +107,16 @@ public class NodesFactory
 
     public static <A, B, C> Operator<A, C> createStreamComposition(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2)
     {
+        if (operator1.getArity() > 1)
+            throw new RuntimeException("Arity of first operator must be one.");
+
         return new Operator<A, C>(parallelismHint)
         {
             @Override
             public void subscribe(int channelNumber, IConsumer<C> consumer)
             {
-                /*if (operator1.getArity() != operator2.getConsumers().size())
-                    throw new RuntimeException("Arity of the operators passed to compose do not match.");*/
-
                 // ?what if some channel goes outside of composition?
                 operator1.clearSubscription();
-                operator2.clearSubscription();
 
                 operator1.subscribe(channelNumber, operator2);
                 operator2.subscribe(channelNumber, consumer);
@@ -141,11 +140,19 @@ public class NodesFactory
 
     public static <A, B, C, D> Operator<A, D> createStreamComposition(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
     {
+        if (operator1.getArity() > 1)
+            throw new RuntimeException("Arity of first operator must be one.");
+        else if (operator2.getArity() > 2)
+            throw new RuntimeException("Arity of second operator must be one.");
+
         return new Operator<A, D>(parallelismHint)
         {
             @Override
             public void subscribe(int channelNumber, IConsumer<D> consumer)
             {
+                operator1.clearSubscription();
+                operator2.clearSubscription();
+
                 operator1.subscribe(channelNumber, operator2);
                 operator2.subscribe(channelNumber, operator3);
                 operator3.subscribe(channelNumber, consumer);
