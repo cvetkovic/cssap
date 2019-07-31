@@ -4,7 +4,7 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 
-public abstract class Operator<A, B> implements Serializable, IConsumer<A>
+public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IProducer<A>
 {
     private int parallelismHint;
     protected Map<Integer, IConsumer<B>> consumers = new HashMap<>();

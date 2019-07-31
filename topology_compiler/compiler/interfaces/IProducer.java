@@ -4,6 +4,6 @@ import java.io.Serializable;
 
 public interface IProducer<T> extends Serializable
 {
-    void next(int channelNumber, T item);
-    void subscribe(int channelNumber, IConsumer<T> consumer);
+    int getOutArity();
+    void subscribe(IConsumer<T> consumer...);
 }
