@@ -1,98 +1,73 @@
 package compiler;
 
-import compiler.interfaces.IConsumer;
-import compiler.interfaces.IProducer;
-import compiler.interfaces.Operator;
+import compiler.interfaces.AtomicOperator;
+import compiler.interfaces.ParallelComposition;
+import compiler.interfaces.StreamComposition;
+import compiler.interfaces.basic.IConsumer;
+import compiler.interfaces.basic.Operator;
 import compiler.interfaces.lambda.Endpoint;
 import compiler.interfaces.lambda.Function1;
 import compiler.interfaces.lambda.Function2;
 import compiler.interfaces.lambda.SPredicate;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class NodesFactory
 {
-    public static <T> IProducer<T> createSource()
+    public static <A, B> AtomicOperator<A, B> map(Function1<A, B> code)
     {
-        return new IProducer<T>()
-        {
-            private Map<Integer, IConsumer<T>> consumers = new HashMap<>();
-
-            @Override
-            public void next(int channelNumber, T item)
-            {
-                if (consumers.containsKey(channelNumber))
-                    consumers.get(channelNumber).next(channelNumber, item);
-                else
-                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
-            }
-
-            @Override
-            public void subscribe(int channelNumber, IConsumer<T> consumer)
-            {
-                if (consumers.containsKey(channelNumber))
-                    throw new RuntimeException("Channel with the same identifier already exists in the given operator.");
-
-                consumers.put(channelNumber, consumer);
-            }
-        };
+        return map(1, code);
     }
 
-    public static <A, B> Operator<A, B> createMap(Function1<A, B> code)
+    public static <A, B> AtomicOperator<A, B> map(int parallelismHint, Function1<A, B> code)
     {
-        return createMap(1, code);
-    }
-
-    public static <A, B> Operator<A, B> createMap(int parallelismHint, Function1<A, B> code)
-    {
-        return new Operator<A, B>(parallelismHint)
+        return new AtomicOperator<A, B>(1, parallelismHint)
         {
             @Override
-            public void subscribe(int channelNumber, IConsumer<B> consumer)
+            public void subscribe(IConsumer<B>... consumers)
             {
-                super.subscribe(1, consumer);
+                super.subscribe(consumers);
 
-                if (consumers.size() > 1)
-                    throw new RuntimeException("Fold operator can have only one input and one output.");
+                if (mapOfConsumers.size() > 1)
+                    throw new RuntimeException("Map operator can have only one input and one output.");
             }
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (consumers.containsKey(1))
-                    consumers.get(1).next(1, code.call(item));
+                if (mapOfConsumers.containsKey(1))
+                    mapOfConsumers.get(1).next(1, code.call(item));
                 else
                     throw new RuntimeException("Map operator is not subscribed to any consumer.");
             }
         };
     }
 
-    public static <A> Operator<A, A> createFilter(SPredicate<A> predicate)
+    public static <A> AtomicOperator<A, A> filter(SPredicate<A> predicate)
     {
-        return createFilter(1, predicate);
+        return filter(1, predicate);
     }
 
-    public static <A> Operator<A, A> createFilter(int parallelismHint, SPredicate<A> predicate)
+    public static <A> AtomicOperator<A, A> filter(int parallelismHint, SPredicate<A> predicate)
     {
-        return new Operator<A, A>(parallelismHint)
+        return new AtomicOperator<A, A>(1, parallelismHint)
         {
             @Override
-            public void subscribe(int channelNumber, IConsumer<A> consumer)
+            public void subscribe(IConsumer<A>... consumers)
             {
-                super.subscribe(1, consumer);
+                super.subscribe(consumers);
 
-                if (consumers.size() > 1)
-                    throw new RuntimeException("Fold operator can have only one input and one output.");
+                if (mapOfConsumers.size() > 1)
+                    throw new RuntimeException("Filter operator can have only one input and one output.");
             }
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (consumers.containsKey(1))
+                if (mapOfConsumers.containsKey(1))
                 {
                     if (predicate.test(item))
-                        consumers.get(1).next(1, item);
+                        mapOfConsumers.get(1).next(1, item);
                 }
                 else
                     throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
@@ -100,97 +75,130 @@ public class NodesFactory
         };
     }
 
-    public static <A, B, C> Operator<A, C> createStreamComposition(Operator<A, B> operator1, Operator<B, C> operator2)
+    private static AtomicOperator getMostRightOperator(Operator operator)
     {
-        return createStreamComposition(1, operator1, operator2);
+        if (operator instanceof AtomicOperator)
+            return (AtomicOperator)operator;
+        else if (operator instanceof StreamComposition)
+        {
+            Operator[] consistedOf = ((StreamComposition)operator).getConsistedOf();
+            return getMostRightOperator(consistedOf[consistedOf.length - 1]);
+        }
+        else if (operator instanceof ParallelComposition)
+            throw new RuntimeException("Not yet implemented.");
+
+        return null;
     }
 
-    public static <A, B, C> Operator<A, C> createStreamComposition(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2)
+    private static AtomicOperator getMostLeftOperator(Operator operator)
     {
-        if (operator1.getArity() > 1)
-            throw new RuntimeException("Arity of first operator must be one.");
+        if (operator instanceof AtomicOperator)
+            return (AtomicOperator)operator;
+        else if (operator instanceof StreamComposition)
+        {
+            Operator[] consistedOf = ((StreamComposition)operator).getConsistedOf();
+            return getMostLeftOperator(consistedOf[0]);
+        }
+        else if (operator instanceof ParallelComposition)
+            throw new RuntimeException("Not yet implemented.");
 
-        return new Operator<A, C>(parallelismHint)
+        return null;
+    }
+
+    // parallelism not allowed for composition
+    public static <A, B, C> StreamComposition<A, C> streamComposition(Operator<A, B> operator1, Operator<B, C> operator2)
+    {
+        if (operator1 == operator2)
+            throw new RuntimeException("Provided operators for stream composition must be distinct references.");
+
+        return new StreamComposition<A, C>(1, new Operator[]{operator1, operator2})
         {
             @Override
-            public void subscribe(int channelNumber, IConsumer<C> consumer)
+            public void subscribe(IConsumer<C>... consumers)
             {
-                // ?what if some channel goes outside of composition?
-                operator1.clearSubscription();
+                // TODO: think about clearSubscription()
+                //operator1.clearSubscription();
 
-                operator1.subscribe(channelNumber, operator2);
-                operator2.subscribe(channelNumber, consumer);
+                operator1.subscribe(operator2);
+                operator2.subscribe(consumers);
+
+                if (getMostRightOperator(operator1).getOutputArity() != getMostLeftOperator(operator2).getInputArity())
+                    throw new RuntimeException("Input arity of the first operator does not match the arity of the second operator.");
             }
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (operator1.getConsumers().containsKey(channelIdentifier))
-                    operator1.next(channelIdentifier, item);
+                Operator mostLeft = getMostLeftOperator(operator1);
+
+                if (mostLeft.getMapOfConsumers().containsKey(channelIdentifier))
+                    mostLeft.next(channelIdentifier, item);
                 else
                     throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
         };
     }
 
-    public static <A, B, C, D> Operator<A, D> createStreamComposition(Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
+    // parallelism not allowed for composition
+    public static <A, B, C, D> StreamComposition<A, D> streamComposition(Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
     {
-        return createStreamComposition(1, operator1, operator2, operator3);
-    }
+        if (operator1 == operator2 || operator2 == operator3 || operator1 == operator3)
+            throw new RuntimeException("Provided operators for stream composition must be distinct references.");
 
-    public static <A, B, C, D> Operator<A, D> createStreamComposition(int parallelismHint, Operator<A, B> operator1, Operator<B, C> operator2, Operator<C, D> operator3)
-    {
-        if (operator1.getArity() > 1)
-            throw new RuntimeException("Arity of first operator must be one.");
-        else if (operator2.getArity() > 2)
-            throw new RuntimeException("Arity of second operator must be one.");
-
-        return new Operator<A, D>(parallelismHint)
+        return new StreamComposition<A, D>(1, new Operator[]{operator1, operator2, operator3})
         {
             @Override
-            public void subscribe(int channelNumber, IConsumer<D> consumer)
+            public void subscribe(IConsumer<D>... consumers)
             {
-                operator1.clearSubscription();
-                operator2.clearSubscription();
+                // TODO: think about clearSubscription()
+                //operator1.clearSubscription();
+                //operator2.clearSubscription();
 
-                operator1.subscribe(channelNumber, operator2);
-                operator2.subscribe(channelNumber, operator3);
-                operator3.subscribe(channelNumber, consumer);
+                operator1.subscribe(operator2);
+                operator2.subscribe(operator3);
+                operator3.subscribe(consumers);
+
+                if (getMostRightOperator(operator1).getOutputArity() != getMostLeftOperator(operator2).getInputArity())
+                    throw new RuntimeException("Input arity of the first operator does not match the arity of the second operator.");
+                if (getMostRightOperator(operator2).getOutputArity() != getMostLeftOperator(operator3).getInputArity())
+                    throw new RuntimeException("Input arity of the second operator does not match the arity of the third operator.");
             }
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (operator1.getConsumers().containsKey(channelIdentifier))
-                    operator1.next(channelIdentifier, item);
+                Operator mostLeft = getMostLeftOperator(operator1);
+
+                if (mostLeft.getMapOfConsumers().containsKey(channelIdentifier))
+                    mostLeft.next(channelIdentifier, item);
                 else
                     throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
         };
     }
 
-    public static <A, B> Operator<A, B> createFold(B initial, Function2<B, A, B> function)
+    public static <A, B> AtomicOperator<A, B> fold(B initial, Function2<B, A, B> function)
     {
-        return new Operator<A, B>(1)
+        return new AtomicOperator<A, B>(1, 1)
         {
             private B accumulator = initial;
 
             @Override
-            public void subscribe(int channelNumber, IConsumer<B> consumer)
+            public void subscribe(IConsumer<B>... consumers)
             {
-                super.subscribe(1, consumer);
+                super.subscribe(consumers);
 
-                if (consumers.size() > 1)
+                if (mapOfConsumers.size() > 1)
                     throw new RuntimeException("Fold operator can have only one input and one output.");
             }
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (consumers.containsKey(1))
+                if (mapOfConsumers.containsKey(1))
                 {
                     accumulator = function.call(accumulator, item);
-                    consumers.get(1).next(1, accumulator);
+                    mapOfConsumers.get(1).next(1, accumulator);
                 }
                 else
                     throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
@@ -198,80 +206,86 @@ public class NodesFactory
         };
     }
 
-    public static <A> Operator<A, A> createCopy()
+    public static <A> AtomicOperator<A, A> copy()
     {
-        return new Operator<A, A>(1)
+        return new AtomicOperator<A, A>(1, 1)
         {
             @Override
             public void next(int channelIdentifier, A item)
             {
-                for (Map.Entry<Integer, IConsumer<A>> key : consumers.entrySet())
+                for (Map.Entry<Integer, IConsumer<A>> key : mapOfConsumers.entrySet())
                     key.getValue().next(key.getKey(), item);
             }
         };
     }
 
-    public static <A> Operator<A, A> createMerge()
+    public static <A> AtomicOperator<A, A> merge()
     {
-        return new Operator<A, A>(1)
+        return new AtomicOperator<A, A>(1, 1)
         {
             @Override
             public void next(int channelIdentifier, A item)
             {
-                consumers.get(channelIdentifier).next(channelIdentifier, item);
+                mapOfConsumers.get(1).next(channelIdentifier, item);
             }
         };
     }
 
-    public static <A> Operator<A, A> createSplitterRoundRobin()
+    public static <A> AtomicOperator<A, A> robinRoundSplitter()
     {
-        return new Operator<A, A>(1)
+        return new AtomicOperator<A, A>(1, 1)
         {
             private int lastSentTo = 0;
             private Integer[] channelNumbers;
 
             @Override
-            public void subscribe(int channelNumber, IConsumer<A> consumer)
+            public void subscribe(IConsumer<A>... consumers)
             {
-                super.subscribe(channelNumber, consumer);
-                channelNumbers = consumers.keySet().toArray(new Integer[consumers.size()]);
+                super.subscribe(consumers);
+                channelNumbers = mapOfConsumers.keySet().toArray(new Integer[mapOfConsumers.size()]);
             }
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                consumers.get(channelNumbers[lastSentTo]).next(channelIdentifier, item);
+                mapOfConsumers.get(channelNumbers[lastSentTo]).next(channelIdentifier, item);
                 lastSentTo = (lastSentTo + 1) % channelNumbers.length;
             }
         };
     }
 
-    public static <T> IConsumer<T> createSink(Endpoint<T> code)
+    public static <T> IConsumer<T> sink(Endpoint<T> code)
     {
-        return (IConsumer<T>) (channelNumber, item) -> code.call(item);
-    }
-
-    public static <T> Operator<T,T> createParallelComposition(Operator<T,T> operator1, Operator<T,T> operator2)
-    {
-        return new Operator<T, T>(1)
+        return new IConsumer<T>()
         {
             @Override
-            public void subscribe(int channelNumber, IConsumer<T> consumer)
+            public int getInputArity()
             {
-                super.subscribe(channelNumber, consumer);
-
-                int id = 1;
-                for (Map.Entry<Integer, IConsumer<T>> e : operator1.getConsumers().entrySet())
-                    consumers.put(id++, e.getValue());
-                for (Map.Entry<Integer, IConsumer<T>> e : operator2.getConsumers().entrySet())
-                    consumers.put(id++, e.getValue());
+                return 1;
             }
 
             @Override
+            public void next(int channelNumber, T item)
+            {
+                code.call(item);
+            }
+        };
+    }
+
+    // parallelism not allowed for composition
+    public static <T> ParallelComposition<T, T> parallelComposition(Operator<T, T> operator1, Operator<T, T> operator2)
+    {
+        if (operator1 == operator2)
+            throw new RuntimeException("Provided operators for stream composition must be distinct references.");
+
+        return new ParallelComposition<T, T>(1, new Operator[]{operator1, operator2})
+        {
+            @Override
             public void next(int channelIdentifier, T item)
             {
-                int numberLeft = operator1.getArity();
+                int numberLeft = operator1.getInputArity();
 
+                // channel numbering in both operators begin from one before merging
                 if (channelIdentifier <= numberLeft)
                     operator1.next(channelIdentifier, item);
                 else
