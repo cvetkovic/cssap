@@ -5,6 +5,8 @@ import compiler.NodesFactory;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.InfiniteSource;
 import compiler.interfaces.basic.Operator;
+import org.apache.storm.Config;
+import org.apache.storm.LocalCluster;
 
 public class Runner
 {
@@ -29,11 +31,13 @@ public class Runner
         compositionFinal.subscribe(printer1, printer2, printer3);
 
         Graph graph = new Graph(compositionFinal);
-        graph.getStormTopology(null, null, null);
+        graph.linkSourceToOperator(source, compositionFinal);
+        graph.setSinks(printer1, printer2, printer3);
 
+        LocalCluster cluster = new LocalCluster();
+        Config config = new Config();
 
-        /*while(source.hasNext())
-            compositionFinal.next(1, source.next());*/
+        cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());
     }
 
     /*private static void mergeTest()

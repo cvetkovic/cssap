@@ -75,13 +75,13 @@ public class NodesFactory
         };
     }
 
-    private static AtomicOperator getMostRightOperator(Operator operator)
+    public static AtomicOperator getMostRightOperator(Operator operator)
     {
         if (operator instanceof AtomicOperator)
-            return (AtomicOperator)operator;
+            return (AtomicOperator) operator;
         else if (operator instanceof StreamComposition)
         {
-            Operator[] consistedOf = ((StreamComposition)operator).getConsistedOf();
+            Operator[] consistedOf = ((StreamComposition) operator).getConsistedOf();
             return getMostRightOperator(consistedOf[consistedOf.length - 1]);
         }
         else if (operator instanceof ParallelComposition)
@@ -90,13 +90,13 @@ public class NodesFactory
         return null;
     }
 
-    private static AtomicOperator getMostLeftOperator(Operator operator)
+    public static AtomicOperator getMostLeftOperator(Operator operator)
     {
         if (operator instanceof AtomicOperator)
-            return (AtomicOperator)operator;
+            return (AtomicOperator) operator;
         else if (operator instanceof StreamComposition)
         {
-            Operator[] consistedOf = ((StreamComposition)operator).getConsistedOf();
+            Operator[] consistedOf = ((StreamComposition) operator).getConsistedOf();
             return getMostLeftOperator(consistedOf[0]);
         }
         else if (operator instanceof ParallelComposition)
@@ -111,7 +111,7 @@ public class NodesFactory
         if (operator1 == operator2)
             throw new RuntimeException("Provided operators for stream composition must be distinct references.");
 
-        return new StreamComposition<A, C>(1, new Operator[]{operator1, operator2})
+        return new StreamComposition<A, C>(new Operator[]{operator1, operator2})
         {
             @Override
             public void subscribe(IConsumer<C>... consumers)
@@ -145,7 +145,7 @@ public class NodesFactory
         if (operator1 == operator2 || operator2 == operator3 || operator1 == operator3)
             throw new RuntimeException("Provided operators for stream composition must be distinct references.");
 
-        return new StreamComposition<A, D>(1, new Operator[]{operator1, operator2, operator3})
+        return new StreamComposition<A, D>(new Operator[]{operator1, operator2, operator3})
         {
             @Override
             public void subscribe(IConsumer<D>... consumers)
@@ -278,7 +278,7 @@ public class NodesFactory
         if (operator1 == operator2)
             throw new RuntimeException("Provided operators for stream composition must be distinct references.");
 
-        return new ParallelComposition<T, T>(1, new Operator[]{operator1, operator2})
+        return new ParallelComposition<T, T>(new Operator[]{operator1, operator2})
         {
             @Override
             public void next(int channelIdentifier, T item)

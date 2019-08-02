@@ -4,17 +4,15 @@ import compiler.interfaces.AtomicOperator;
 import compiler.interfaces.ParallelComposition;
 import compiler.interfaces.StreamComposition;
 import compiler.interfaces.basic.IConsumer;
-import compiler.interfaces.basic.IProducer;
+import compiler.interfaces.basic.InfiniteSource;
 import compiler.interfaces.basic.Operator;
-import compiler.interfaces.lambda.Function0;
-import compiler.structures.StormNode;
+import compiler.storm.StormNode;
+import compiler.storm.StormSink;
+import compiler.storm.StormSource;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
-import org.apache.storm.topology.BasicOutputCollector;
-import org.apache.storm.topology.BoltDeclarer;
-import org.apache.storm.topology.OutputFieldsDeclarer;
-import org.apache.storm.topology.TopologyBuilder;
+import org.apache.storm.topology.*;
 import org.apache.storm.topology.base.BaseBasicBolt;
 import org.apache.storm.topology.base.BaseRichSpout;
 import org.apache.storm.tuple.Fields;
@@ -26,7 +24,9 @@ import java.util.*;
 
 public class Graph implements Serializable
 {
+    private List<StormSource> sources = new LinkedList<>();
     private final Operator[] graphOperators;
+    private IConsumer[] sinks;
 
     public Graph(Operator... consumers)
     {
@@ -34,19 +34,6 @@ public class Graph implements Serializable
 
         for (int i = 0; i < consumers.length; i++)
             graphOperators[i] = consumers[i];
-    }
-
-    public Graph(Graph... pipelines)
-    {
-        int countOfNodes = 0;
-        for (int i = 0; i < pipelines.length; i++)
-            countOfNodes += pipelines[i].graphOperators.length;
-
-        graphOperators = new Operator[countOfNodes];
-        int i = 0;
-        for (Graph p : pipelines)
-            for (Operator o : p.graphOperators)
-                graphOperators[i++] = o;
     }
 
     /*public void executeTopologyWithoutStorm(Function0 code, IProducer producer, IConsumer consumer)
@@ -104,103 +91,122 @@ public class Graph implements Serializable
         }
     }
 
-    public StormTopology getStormTopology(Function0 code, IProducer producer, IConsumer consumer)
+    private List<StormNode> extractAtomicOperators()
     {
-        // list of bolts made from atomic operators extracted from the topology
-        int id = 0;
-        List<StormNode> operators = new LinkedList<>();
+        List<StormNode> atomicOperators = new LinkedList<>();
 
         for (int i = 0; i < this.graphOperators.length; i++)
         {
             if (this.graphOperators[i] instanceof AtomicOperator)
-                operators.add(new StormNode(id++, this.graphOperators[i], generateOperator((AtomicOperator) this.graphOperators[i])));
+                atomicOperators.add(new StormNode(this.graphOperators[i], generateOperator((AtomicOperator) this.graphOperators[i])));
             else if (this.graphOperators[i] instanceof StreamComposition)
             {
                 List<AtomicOperator> operatorList = resolveComposition(this.graphOperators[i]);
                 for (AtomicOperator operator : operatorList)
-                    operators.add(new StormNode(id++, operator, generateOperator(operator)));
+                    atomicOperators.add(new StormNode(operator, generateOperator(operator)));
             }
             else if (this.graphOperators[i] instanceof ParallelComposition)
             {
                 List<AtomicOperator> operatorList = resolveComposition(this.graphOperators[i]);
                 for (AtomicOperator operator : operatorList)
-                    operators.add(new StormNode(id++, operator, generateOperator(operator)));
+                    atomicOperators.add(new StormNode(operator, generateOperator(operator)));
             }
             else
                 throw new RuntimeException("Provided type of operator is not implemented.");
         }
 
+        return atomicOperators;
+    }
+
+    public StormTopology getStormTopology()
+    {
         TopologyBuilder builder = new TopologyBuilder();
+        // list of bolts made from atomic operators extracted from the topology
+        List<StormNode> atomicOperators = extractAtomicOperators();
 
-        ///////////////////////////////////////////////////////////////////////////////////////////////
-        ////////////////////////////// CONNECTING THE GENERATED TOPOLOGY //////////////////////////////
-        ///////////////////////////////////////////////////////////////////////////////////////////////
-        for (StormNode node : operators)
+        ////////////////////////////////////////////////////////////////////
+        //              STORM SPOUT CREATION
+        ////////////////////////////////////////////////////////////////////
+        for (int i = 0; i < sources.size(); i++)
         {
-            int nodeId = node.getStormId();
-            Operator operator = node.getOperator();
-            BaseBasicBolt bolt = node.getBolt();
+            BaseRichSpout spout = generateSpout(sources.get(i).getSource());
+            sources.get(i).setSpout(spout);
 
-            BoltDeclarer declarer = builder.setBolt("operator" + nodeId, bolt, operator.getParallelismHint());
-            if (operator.getOutputArity() == 1)
+            builder.setSpout(sources.get(i).getName(), spout);
+        }
+
+        ////////////////////////////////////////////////////////////////////
+        //              STORM BOLT CREATION
+        ////////////////////////////////////////////////////////////////////
+        for (StormNode node : atomicOperators)
+        {
+            BoltDeclarer declarer = builder.setBolt(node.getStormId(), node.getBolt(), node.getOperator().getParallelismHint());
+            node.setDeclarer(declarer);
+        }
+
+        ////////////////////////////////////////////////////////////////////
+        //              LINKING OPERATORS
+        ////////////////////////////////////////////////////////////////////
+        for (StormNode node : atomicOperators)
+        {
+            // check if any source is connected to this operator and if yes link them
+            for (StormSource s : sources)
+                if (s.getConsumer() == node.getOperator())
+                    node.getDeclarer().shuffleGrouping(s.getName());
+
+            // linking operator themselves
+            StormNode link = getNodeSubscribedTo(node.getOperator(), atomicOperators);
+            if (link != null)
             {
-                IConsumer consumerOfOperator = (IConsumer) operator.getMapOfConsumers().get(1);
-                declarer.shuffleGrouping("operator" + getStormIdOfOperator(operators, consumerOfOperator));
-            }
-            else
-            {
-                /*MultichannelGrouping customGrouping = new MultichannelGrouping(getListOfFollowingOperators());
-                for (Map.Entry<> outputConsumer : operator.getMapOfConsumers().entrySet())
-                {
-                    String nameOfDestination = "operator";
-                    declarer.customGrouping("operator" + idOfOutput, customGrouping);
-                }
-                */
+                node.getDeclarer().shuffleGrouping(link.getStormId());
             }
         }
-        ///////////////////////////////////////////////////////////////////////////////////////////////
-        ///////////////////////////////////////////////////////////////////////////////////////////////
-        ///////////////////////////////////////////////////////////////////////////////////////////////
+
+        ////////////////////////////////////////////////////////////////////
+        //              SINK GENERATION & LINKAGE
+        ////////////////////////////////////////////////////////////////////
+        Map<IConsumer, StormSink> stormSinks = new HashMap<>();
+
+        for (int i = 0; i < sinks.length; i++)
+        {
+            StormSink ss = new StormSink(generateSink(sinks[i]));
+
+            BoltDeclarer declarer = builder.setBolt(ss.getStormName(), ss.getBolt());
+            stormSinks.put(sinks[i], ss);
+
+            for (StormNode n : atomicOperators)
+                if (n.getOperator().getMapOfConsumers().containsValue(sinks[i]))
+                    declarer.shuffleGrouping(n.getStormId());
+        }
 
         return builder.createTopology();
     }
 
-    private static int getStormIdOfOperator(List<StormNode> list, IConsumer op)
+    private static StormNode getNodeSubscribedTo(Operator subscribedTo, List<StormNode> nodes)
     {
-        for(StormNode node : list)
-        {
-            if (node.getOperator() == op)
-                return node.getStormId();
-        }
+        for (StormNode n : nodes)
+            if (n.getOperator().getMapOfConsumers().containsValue(subscribedTo))
+                return n;
 
-        throw new RuntimeException("No such an operator in the provided storm nodes list.");
+        return null;
     }
 
-    private BaseRichSpout generateSpout(Function0 code, IProducer producer)
+    private BaseRichSpout generateSpout(InfiniteSource source)
     {
         return new BaseRichSpout()
         {
             private SpoutOutputCollector collector;
-            /*private IConsumer consumer = new IConsumer()
-            {
-                @Override
-                public void next(int channelNumber, Object item)
-                {
-                    collector.emit(new Values(item));
-                }
-            };*/
 
             @Override
             public void open(Map conf, TopologyContext context, SpoutOutputCollector collector)
             {
                 this.collector = collector;
-                //producer.subscribe(1, consumer);
             }
 
             @Override
             public void nextTuple()
             {
-                //producer.next(1, code.call());
+                collector.emit(new Values(source.next()));
             }
 
             @Override
@@ -234,6 +240,17 @@ public class Graph implements Serializable
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
+                /* this was put here to avoid cloning the whole topology
+                 * because we cannot do clearSubscription because the
+                 * deleted data would be used for compilation. Possible
+                 * to do with two-pass compilation also
+                 */
+                if (!operator.getMapOfConsumers().containsValue(consumer))
+                {
+                    operator.clearSubscription();
+                    operator.subscribe(consumer);
+                }
+
                 this.collector = collector;
                 Object item = input.getValueByField("data");
 
@@ -250,7 +267,6 @@ public class Graph implements Serializable
             public void prepare(Map stormConf, TopologyContext context)
             {
                 super.prepare(stormConf, context);
-                operator.subscribe(consumer);
             }
         };
     }
@@ -278,5 +294,15 @@ public class Graph implements Serializable
                 super.prepare(stormConf, context);
             }
         };
+    }
+
+    public void setSinks(IConsumer... sinks)
+    {
+        this.sinks = sinks.clone();
+    }
+
+    public void linkSourceToOperator(InfiniteSource source, Operator compositionFinal)
+    {
+        sources.add(new StormSource(source, NodesFactory.getMostLeftOperator(compositionFinal)));
     }
 }

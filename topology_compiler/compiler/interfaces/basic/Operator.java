@@ -6,10 +6,15 @@ import java.util.Map;
 
 public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IProducer<B>
 {
-    private int inputArity;
-    private int parallelismHint;
+    protected int inputArity;
+    private int parallelismHint = 1;
     private int newChannel = 1;
     protected Map<Integer, IConsumer<B>> mapOfConsumers = new HashMap<>();
+
+    public Operator(int parallelismHint)
+    {
+        this.parallelismHint = parallelismHint;
+    }
 
     public Operator(int inputArity, int parallelismHint)
     {
@@ -27,6 +32,7 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IPro
     public void clearSubscription()
     {
         mapOfConsumers.clear();
+        newChannel = 1;
     }
 
     public Map<Integer, IConsumer<B>> getMapOfConsumers()
