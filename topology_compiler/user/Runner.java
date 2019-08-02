@@ -8,6 +8,8 @@ import compiler.interfaces.basic.Operator;
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
 
+import java.util.Random;
+
 public class Runner
 {
     public static void main(String[] args)
@@ -17,7 +19,7 @@ public class Runner
 
     private static void composeTest1()
     {
-        InfiniteSource source = new InfiniteSource(() -> 1.0);
+        InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
 
         Operator multiplierBy10 = NodesFactory.map(1, (Double item) -> item * 10);
         Operator multiplierBy100 = NodesFactory.map(1, (Double item) -> item * 100);

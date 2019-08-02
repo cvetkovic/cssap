@@ -1,6 +1,7 @@
 package compiler.storm;
 
 import compiler.interfaces.basic.Operator;
+import org.apache.storm.grouping.CustomStreamGrouping;
 import org.apache.storm.topology.BoltDeclarer;
 import org.apache.storm.topology.base.BaseBasicBolt;
 
@@ -13,6 +14,8 @@ public class StormNode implements Serializable
     private Operator operator;
     private BaseBasicBolt bolt;
     private BoltDeclarer declarer;
+
+    private CustomStreamGrouping customGrouping;
 
     public StormNode(Operator operator, BaseBasicBolt bolt)
     {
@@ -44,5 +47,18 @@ public class StormNode implements Serializable
     public void setDeclarer(BoltDeclarer declarer)
     {
         this.declarer = declarer;
+    }
+
+    public CustomStreamGrouping getCustomGrouping()
+    {
+        return customGrouping;
+    }
+
+    public void setCustomGrouping(CustomStreamGrouping customGrouping)
+    {
+        if (this.customGrouping != null)
+            throw new RuntimeException("Custom grouping inside StormNode class can be set only once.");
+
+        this.customGrouping = customGrouping;
     }
 }

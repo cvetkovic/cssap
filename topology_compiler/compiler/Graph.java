@@ -6,13 +6,18 @@ import compiler.interfaces.StreamComposition;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.InfiniteSource;
 import compiler.interfaces.basic.Operator;
+import compiler.storm.CopyGrouping;
 import compiler.storm.StormNode;
 import compiler.storm.StormSink;
 import compiler.storm.StormSource;
 import org.apache.storm.generated.StormTopology;
+import org.apache.storm.grouping.CustomStreamGrouping;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
-import org.apache.storm.topology.*;
+import org.apache.storm.topology.BasicOutputCollector;
+import org.apache.storm.topology.BoltDeclarer;
+import org.apache.storm.topology.OutputFieldsDeclarer;
+import org.apache.storm.topology.TopologyBuilder;
 import org.apache.storm.topology.base.BaseBasicBolt;
 import org.apache.storm.topology.base.BaseRichSpout;
 import org.apache.storm.tuple.Fields;
@@ -156,39 +161,55 @@ public class Graph implements Serializable
 
             // linking operator themselves
             StormNode link = getNodeSubscribedTo(node.getOperator(), atomicOperators);
-            if (link != null)
-            {
-                node.getDeclarer().shuffleGrouping(link.getStormId());
-            }
+            doLinking(link, node.getDeclarer());
         }
 
         ////////////////////////////////////////////////////////////////////
         //              SINK GENERATION & LINKAGE
         ////////////////////////////////////////////////////////////////////
-        Map<IConsumer, StormSink> stormSinks = new HashMap<>();
-
         for (int i = 0; i < sinks.length; i++)
         {
             StormSink ss = new StormSink(generateSink(sinks[i]));
 
             BoltDeclarer declarer = builder.setBolt(ss.getStormName(), ss.getBolt());
-            stormSinks.put(sinks[i], ss);
 
-            for (StormNode n : atomicOperators)
-                if (n.getOperator().getMapOfConsumers().containsValue(sinks[i]))
-                    declarer.shuffleGrouping(n.getStormId());
+            StormNode link = getNodeSubscribedTo(sinks[i], atomicOperators);
+            doLinking(link, declarer);
         }
 
         return builder.createTopology();
     }
 
-    private static StormNode getNodeSubscribedTo(Operator subscribedTo, List<StormNode> nodes)
+    private StormNode getNodeSubscribedTo(IConsumer subscribedTo, List<StormNode> nodes)
     {
         for (StormNode n : nodes)
             if (n.getOperator().getMapOfConsumers().containsValue(subscribedTo))
                 return n;
 
         return null;
+    }
+
+    private void doLinking(StormNode link, BoltDeclarer declarer)
+    {
+        if (link != null)
+        {
+            if (link.getOperator().getOutputArity() == 1)
+                declarer.shuffleGrouping(link.getStormId());
+            else
+            {
+                // Custom grouping has to be implemented
+                CustomStreamGrouping customGrouping;
+                if (link.getCustomGrouping() == null)
+                {
+                    customGrouping = new CopyGrouping();
+                    link.setCustomGrouping(customGrouping);
+                }
+                else
+                    customGrouping = link.getCustomGrouping();
+
+                declarer.customGrouping(link.getStormId(), customGrouping);
+            }
+        }
     }
 
     private BaseRichSpout generateSpout(InfiniteSource source)
@@ -203,10 +224,14 @@ public class Graph implements Serializable
                 this.collector = collector;
             }
 
+            private int i = 0;
+
             @Override
             public void nextTuple()
             {
-                collector.emit(new Values(source.next()));
+                if (i < 5)
+                    for (i = 0; i < 5; i++)
+                        collector.emit(new Values(source.next()));
             }
 
             @Override
@@ -240,17 +265,6 @@ public class Graph implements Serializable
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
-                /* this was put here to avoid cloning the whole topology
-                 * because we cannot do clearSubscription because the
-                 * deleted data would be used for compilation. Possible
-                 * to do with two-pass compilation also
-                 */
-                if (!operator.getMapOfConsumers().containsValue(consumer))
-                {
-                    operator.clearSubscription();
-                    operator.subscribe(consumer);
-                }
-
                 this.collector = collector;
                 Object item = input.getValueByField("data");
 
@@ -267,6 +281,9 @@ public class Graph implements Serializable
             public void prepare(Map stormConf, TopologyContext context)
             {
                 super.prepare(stormConf, context);
+
+                operator.clearSubscription();
+                operator.subscribe(consumer);
             }
         };
     }
