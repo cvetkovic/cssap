@@ -3,7 +3,7 @@ package user;
 import compiler.Graph;
 import compiler.NodesFactory;
 import compiler.interfaces.basic.IConsumer;
-import compiler.interfaces.basic.InfiniteSource;
+import compiler.interfaces.InfiniteSource;
 import compiler.interfaces.basic.Operator;
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
@@ -23,7 +23,7 @@ public class Runner
 
         Operator multiplierBy10 = NodesFactory.map(1, (Double item) -> item * 10);
         Operator multiplierBy100 = NodesFactory.map(1, (Double item) -> item * 100);
-        Operator copy = NodesFactory.copy();
+        Operator copy = NodesFactory.copy(3);
         Operator composition2 = NodesFactory.streamComposition(multiplierBy10, multiplierBy100);
         Operator compositionFinal = NodesFactory.streamComposition(composition2, copy);
         IConsumer printer1 = NodesFactory.sink((item) -> System.out.println("P1: " + item));

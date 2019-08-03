@@ -1,11 +1,9 @@
-package compiler.interfaces.basic;
+package compiler.interfaces;
 
+import compiler.interfaces.basic.Source;
 import compiler.interfaces.lambda.Function0;
 
-import java.io.Serializable;
-import java.util.Iterator;
-
-public class InfiniteSource<T> implements Iterator<T>, Serializable
+public class InfiniteSource<T> extends Source<T>
 {
     private final Function0<T> code;
 

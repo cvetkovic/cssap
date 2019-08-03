@@ -1,7 +1,7 @@
 package compiler.storm;
 
 import compiler.interfaces.basic.IConsumer;
-import compiler.interfaces.basic.InfiniteSource;
+import compiler.interfaces.InfiniteSource;
 import org.apache.storm.topology.base.BaseRichSpout;
 
 import java.io.Serializable;

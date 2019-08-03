@@ -10,8 +10,6 @@ import compiler.interfaces.lambda.Function1;
 import compiler.interfaces.lambda.Function2;
 import compiler.interfaces.lambda.SPredicate;
 
-import java.util.Map;
-
 public class NodesFactory
 {
     public static <A, B> AtomicOperator<A, B> map(Function1<A, B> code)
@@ -21,24 +19,12 @@ public class NodesFactory
 
     public static <A, B> AtomicOperator<A, B> map(int parallelismHint, Function1<A, B> code)
     {
-        return new AtomicOperator<A, B>(1, parallelismHint)
+        return new AtomicOperator<A, B>(1, 1, parallelismHint)
         {
-            @Override
-            public void subscribe(IConsumer<B>... consumers)
-            {
-                super.subscribe(consumers);
-
-                if (mapOfConsumers.size() > 1)
-                    throw new RuntimeException("Map operator can have only one input and one output.");
-            }
-
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (mapOfConsumers.containsKey(1))
-                    mapOfConsumers.get(1).next(1, code.call(item));
-                else
-                    throw new RuntimeException("Map operator is not subscribed to any consumer.");
+                consumers[0].next(channelIdentifier, code.call(item));
             }
         };
     }
@@ -50,27 +36,13 @@ public class NodesFactory
 
     public static <A> AtomicOperator<A, A> filter(int parallelismHint, SPredicate<A> predicate)
     {
-        return new AtomicOperator<A, A>(1, parallelismHint)
+        return new AtomicOperator<A, A>(1, 1, parallelismHint)
         {
-            @Override
-            public void subscribe(IConsumer<A>... consumers)
-            {
-                super.subscribe(consumers);
-
-                if (mapOfConsumers.size() > 1)
-                    throw new RuntimeException("Filter operator can have only one input and one output.");
-            }
-
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (mapOfConsumers.containsKey(1))
-                {
-                    if (predicate.test(item))
-                        mapOfConsumers.get(1).next(1, item);
-                }
-                else
-                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
+                if (predicate.test(item))
+                    consumers[0].next(channelIdentifier, item);
             }
         };
     }
@@ -116,9 +88,6 @@ public class NodesFactory
             @Override
             public void subscribe(IConsumer<C>... consumers)
             {
-                // TODO: think about clearSubscription()
-                //operator1.clearSubscription();
-
                 operator1.subscribe(operator2);
                 operator2.subscribe(consumers);
 
@@ -130,11 +99,7 @@ public class NodesFactory
             public void next(int channelIdentifier, A item)
             {
                 Operator mostLeft = getMostLeftOperator(operator1);
-
-                if (mostLeft.getMapOfConsumers().containsKey(channelIdentifier))
-                    mostLeft.next(channelIdentifier, item);
-                else
-                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
+                mostLeft.next(channelIdentifier, item);
             }
         };
     }
@@ -150,10 +115,6 @@ public class NodesFactory
             @Override
             public void subscribe(IConsumer<D>... consumers)
             {
-                // TODO: think about clearSubscription()
-                //operator1.clearSubscription();
-                //operator2.clearSubscription();
-
                 operator1.subscribe(operator2);
                 operator2.subscribe(operator3);
                 operator3.subscribe(consumers);
@@ -168,88 +129,64 @@ public class NodesFactory
             public void next(int channelIdentifier, A item)
             {
                 Operator mostLeft = getMostLeftOperator(operator1);
-
-                if (mostLeft.getMapOfConsumers().containsKey(channelIdentifier))
-                    mostLeft.next(channelIdentifier, item);
-                else
-                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
+                mostLeft.next(channelIdentifier, item);
             }
         };
     }
 
     public static <A, B> AtomicOperator<A, B> fold(B initial, Function2<B, A, B> function)
     {
-        return new AtomicOperator<A, B>(1, 1)
+        return new AtomicOperator<A, B>(1, 1, 1)
         {
             private B accumulator = initial;
 
             @Override
-            public void subscribe(IConsumer<B>... consumers)
+            public void next(int channelIdentifier, A item)
             {
-                super.subscribe(consumers);
-
-                if (mapOfConsumers.size() > 1)
-                    throw new RuntimeException("Fold operator can have only one input and one output.");
+                accumulator = function.call(accumulator, item);
+                consumers[0].next(channelIdentifier, accumulator);
             }
+        };
+    }
 
+    public static <A> AtomicOperator<A, A> copy(int outputArity)
+    {
+        return new AtomicOperator<A, A>(1, outputArity, 1)
+        {
             @Override
             public void next(int channelIdentifier, A item)
             {
-                if (mapOfConsumers.containsKey(1))
+                for (int i = 0; i < consumers.length; i++)
                 {
-                    accumulator = function.call(accumulator, item);
-                    mapOfConsumers.get(1).next(1, accumulator);
+                    consumers[i].next(channelIdentifier, item);
                 }
-                else
-                    throw new RuntimeException("Channel with provided identifier is not subscribed to the operator.");
             }
         };
     }
 
-    public static <A> AtomicOperator<A, A> copy()
+    public static <A> AtomicOperator<A, A> merge(int inputArity)
     {
-        return new AtomicOperator<A, A>(1, 1)
+        return new AtomicOperator<A, A>(inputArity, 1, 1)
         {
             @Override
             public void next(int channelIdentifier, A item)
             {
-                for (Map.Entry<Integer, IConsumer<A>> key : mapOfConsumers.entrySet())
-                    key.getValue().next(key.getKey(), item);
+                consumers[0].next(channelIdentifier, item);
             }
         };
     }
 
-    public static <A> AtomicOperator<A, A> merge()
+    public static <A> AtomicOperator<A, A> robinRoundSplitter(int outputArity)
     {
-        return new AtomicOperator<A, A>(1, 1)
+        return new AtomicOperator<A, A>(1, outputArity, 1)
         {
-            @Override
-            public void next(int channelIdentifier, A item)
-            {
-                mapOfConsumers.get(1).next(channelIdentifier, item);
-            }
-        };
-    }
-
-    public static <A> AtomicOperator<A, A> robinRoundSplitter()
-    {
-        return new AtomicOperator<A, A>(1, 1)
-        {
-            private int lastSentTo = 0;
-            private Integer[] channelNumbers;
-
-            @Override
-            public void subscribe(IConsumer<A>... consumers)
-            {
-                super.subscribe(consumers);
-                channelNumbers = mapOfConsumers.keySet().toArray(new Integer[mapOfConsumers.size()]);
-            }
+            private int sentTo = 0;
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                mapOfConsumers.get(channelNumbers[lastSentTo]).next(channelIdentifier, item);
-                lastSentTo = (lastSentTo + 1) % channelNumbers.length;
+                consumers[sentTo].next(channelIdentifier, item);
+                sentTo = (sentTo + 1) % consumers.length;
             }
         };
     }

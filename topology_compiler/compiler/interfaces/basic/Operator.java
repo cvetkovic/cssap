@@ -1,24 +1,17 @@
 package compiler.interfaces.basic;
 
 import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
 
 public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IProducer<B>
 {
     protected int inputArity;
     private int parallelismHint = 1;
-    private int newChannel = 1;
-    protected Map<Integer, IConsumer<B>> mapOfConsumers = new HashMap<>();
+    protected IConsumer<B>[] consumers;
 
-    public Operator(int parallelismHint)
-    {
-        this.parallelismHint = parallelismHint;
-    }
-
-    public Operator(int inputArity, int parallelismHint)
+    public Operator(int inputArity, int outputArity, int parallelismHint)
     {
         this.inputArity = inputArity;
+        this.consumers = new IConsumer[outputArity];
         this.parallelismHint = parallelismHint;
     }
 
@@ -29,15 +22,9 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IPro
 
     public abstract void next(int channelIdentifier, A item);
 
-    public void clearSubscription()
+    public IConsumer<B>[] getConsumers()
     {
-        mapOfConsumers.clear();
-        newChannel = 1;
-    }
-
-    public Map<Integer, IConsumer<B>> getMapOfConsumers()
-    {
-        return mapOfConsumers;
+        return consumers;
     }
 
     @Override
@@ -49,13 +36,15 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IPro
     @Override
     public int getOutputArity()
     {
-        return mapOfConsumers.size();
+        return consumers.length;
     }
 
     @Override
     public void subscribe(IConsumer<B>... consumers)
     {
-        for (int i = 0; i < consumers.length; i++)
-            mapOfConsumers.put(newChannel++, consumers[i]);
+        if (consumers.length != this.consumers.length)
+            throw new RuntimeException("You have to provide the same number of consumers as the number of output arity that was specified in the operator constructor.");
+
+        this.consumers = consumers;
     }
 }

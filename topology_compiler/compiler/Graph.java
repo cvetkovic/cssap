@@ -4,9 +4,10 @@ import compiler.interfaces.AtomicOperator;
 import compiler.interfaces.ParallelComposition;
 import compiler.interfaces.StreamComposition;
 import compiler.interfaces.basic.IConsumer;
-import compiler.interfaces.basic.InfiniteSource;
+import compiler.interfaces.InfiniteSource;
 import compiler.interfaces.basic.Operator;
-import compiler.storm.CopyGrouping;
+import compiler.storm.SystemMessage;
+import compiler.storm.groupings.CopyGrouping;
 import compiler.storm.StormNode;
 import compiler.storm.StormSink;
 import compiler.storm.StormSource;
@@ -157,7 +158,7 @@ public class Graph implements Serializable
             // check if any source is connected to this operator and if yes link them
             for (StormSource s : sources)
                 if (s.getConsumer() == node.getOperator())
-                    node.getDeclarer().shuffleGrouping(s.getName());
+                    node.getDeclarer().globalGrouping(s.getName());
 
             // linking operator themselves
             StormNode link = getNodeSubscribedTo(node.getOperator(), atomicOperators);
@@ -183,8 +184,9 @@ public class Graph implements Serializable
     private StormNode getNodeSubscribedTo(IConsumer subscribedTo, List<StormNode> nodes)
     {
         for (StormNode n : nodes)
-            if (n.getOperator().getMapOfConsumers().containsValue(subscribedTo))
-                return n;
+            for (int i = 0; i < n.getOperator().getConsumers().length; i++)
+                if (n.getOperator().getConsumers()[i] == subscribedTo)
+                    return n;
 
         return null;
     }
@@ -194,7 +196,7 @@ public class Graph implements Serializable
         if (link != null)
         {
             if (link.getOperator().getOutputArity() == 1)
-                declarer.shuffleGrouping(link.getStormId());
+                declarer.globalGrouping(link.getStormId());
             else
             {
                 // Custom grouping has to be implemented
@@ -231,13 +233,13 @@ public class Graph implements Serializable
             {
                 if (i < 5)
                     for (i = 0; i < 5; i++)
-                        collector.emit(new Values(source.next()));
+                        collector.emit(new Values(source.next(), null));
             }
 
             @Override
             public void declareOutputFields(OutputFieldsDeclarer declarer)
             {
-                declarer.declare(new Fields("data"));
+                declarer.declare(new Fields("data", "message"));
             }
         };
     }
@@ -247,20 +249,7 @@ public class Graph implements Serializable
         return new BaseBasicBolt()
         {
             private BasicOutputCollector collector;
-            private IConsumer consumer = new IConsumer()
-            {
-                @Override
-                public int getInputArity()
-                {
-                    return 1;
-                }
-
-                @Override
-                public void next(int channelNumber, Object item)
-                {
-                    collector.emit(new Values(item));
-                }
-            };
+            private IConsumer[] internalConsumers;
 
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
@@ -268,13 +257,14 @@ public class Graph implements Serializable
                 this.collector = collector;
                 Object item = input.getValueByField("data");
 
-                operator.next(1, item);
+                for (int i = 0; i < operator.getOutputArity(); i++)
+                    operator.next(i, item);
             }
 
             @Override
             public void declareOutputFields(OutputFieldsDeclarer declarer)
             {
-                declarer.declare(new Fields("data"));
+                declarer.declare(new Fields("data", "message"));
             }
 
             @Override
@@ -282,8 +272,30 @@ public class Graph implements Serializable
             {
                 super.prepare(stormConf, context);
 
-                operator.clearSubscription();
-                operator.subscribe(consumer);
+                internalConsumers = new IConsumer[operator.getOutputArity()];
+                for (int i = 0; i < internalConsumers.length; i++)
+                {
+                    internalConsumers[i] = new IConsumer()
+                    {
+                        @Override
+                        public int getInputArity()
+                        {
+                            throw new RuntimeException("This method was never supposed to be called.");
+                        }
+
+                        @Override
+                        public void next(int channelNumber, Object item)
+                        {
+                            SystemMessage message = null;
+                            if (operator.getOutputArity() > 1)
+                                message = new SystemMessage();
+
+                            collector.emit(new Values(item, message));
+                        }
+                    };
+                }
+
+                operator.subscribe(internalConsumers);
             }
         };
     }
