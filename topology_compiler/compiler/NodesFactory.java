@@ -12,14 +12,14 @@ import compiler.interfaces.lambda.SPredicate;
 
 public class NodesFactory
 {
-    public static <A, B> AtomicOperator<A, B> map(Function1<A, B> code)
+    public static <A, B> AtomicOperator<A, B> map(String name, Function1<A, B> code)
     {
-        return map(1, code);
+        return map(name, 1, code);
     }
 
-    public static <A, B> AtomicOperator<A, B> map(int parallelismHint, Function1<A, B> code)
+    public static <A, B> AtomicOperator<A, B> map(String name, int parallelismHint, Function1<A, B> code)
     {
-        return new AtomicOperator<A, B>(1, 1, parallelismHint)
+        return new AtomicOperator<A, B>(name, 1, 1, parallelismHint)
         {
             @Override
             public void next(int channelIdentifier, A item)
@@ -29,14 +29,14 @@ public class NodesFactory
         };
     }
 
-    public static <A> AtomicOperator<A, A> filter(SPredicate<A> predicate)
+    public static <A> AtomicOperator<A, A> filter(String name, SPredicate<A> predicate)
     {
-        return filter(1, predicate);
+        return filter(name, 1, predicate);
     }
 
-    public static <A> AtomicOperator<A, A> filter(int parallelismHint, SPredicate<A> predicate)
+    public static <A> AtomicOperator<A, A> filter(String name, int parallelismHint, SPredicate<A> predicate)
     {
-        return new AtomicOperator<A, A>(1, 1, parallelismHint)
+        return new AtomicOperator<A, A>(name, 1, 1, parallelismHint)
         {
             @Override
             public void next(int channelIdentifier, A item)
@@ -134,9 +134,9 @@ public class NodesFactory
         };
     }
 
-    public static <A, B> AtomicOperator<A, B> fold(B initial, Function2<B, A, B> function)
+    public static <A, B> AtomicOperator<A, B> fold(String name, B initial, Function2<B, A, B> function)
     {
-        return new AtomicOperator<A, B>(1, 1, 1)
+        return new AtomicOperator<A, B>(name, 1, 1, 1)
         {
             private B accumulator = initial;
 
@@ -149,24 +149,22 @@ public class NodesFactory
         };
     }
 
-    public static <A> AtomicOperator<A, A> copy(int outputArity)
+    public static <A> AtomicOperator<A, A> copy(String name, int outputArity)
     {
-        return new AtomicOperator<A, A>(1, outputArity, 1)
+        return new AtomicOperator<A, A>(name, 1, outputArity, 1, Operator.Operation.COPY)
         {
             @Override
             public void next(int channelIdentifier, A item)
             {
                 for (int i = 0; i < consumers.length; i++)
-                {
-                    consumers[i].next(channelIdentifier, item);
-                }
+                    consumers[i].next(i, item);
             }
         };
     }
 
-    public static <A> AtomicOperator<A, A> merge(int inputArity)
+    public static <A> AtomicOperator<A, A> merge(String name, int inputArity)
     {
-        return new AtomicOperator<A, A>(inputArity, 1, 1)
+        return new AtomicOperator<A, A>(name, inputArity, 1, 1)
         {
             @Override
             public void next(int channelIdentifier, A item)
@@ -176,16 +174,16 @@ public class NodesFactory
         };
     }
 
-    public static <A> AtomicOperator<A, A> robinRoundSplitter(int outputArity)
+    public static <A> AtomicOperator<A, A> robinRoundSplitter(String name, int outputArity)
     {
-        return new AtomicOperator<A, A>(1, outputArity, 1)
+        return new AtomicOperator<A, A>(name, 1, outputArity, 1, Operator.Operation.ROUND_ROBIN_SPLITTER)
         {
             private int sentTo = 0;
 
             @Override
             public void next(int channelIdentifier, A item)
             {
-                consumers[sentTo].next(channelIdentifier, item);
+                consumers[sentTo].next(sentTo, item);
                 sentTo = (sentTo + 1) % consumers.length;
             }
         };

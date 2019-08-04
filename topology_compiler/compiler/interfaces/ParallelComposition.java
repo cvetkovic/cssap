@@ -8,7 +8,10 @@ public abstract class ParallelComposition<A, B> extends Operator<A, B>
 
     public ParallelComposition(Operator[] consistedOf)
     {
-        super(calculateInputArity(consistedOf), calculateOutputArity(consistedOf),1);
+        super(null,
+                calculateInputArity(consistedOf),
+                calculateOutputArity(consistedOf),
+                1);
 
         this.consistedOf = consistedOf;
     }

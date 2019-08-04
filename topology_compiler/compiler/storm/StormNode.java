@@ -9,8 +9,6 @@ import java.io.Serializable;
 
 public class StormNode implements Serializable
 {
-    private static int getId = 1;
-    private String stormId;
     private Operator operator;
     private BaseBasicBolt bolt;
     private BoltDeclarer declarer;
@@ -19,14 +17,8 @@ public class StormNode implements Serializable
 
     public StormNode(Operator operator, BaseBasicBolt bolt)
     {
-        this.stormId = "operator" + getId++;
         this.operator = operator;
         this.bolt = bolt;
-    }
-
-    public String getStormId()
-    {
-        return stormId;
     }
 
     public Operator getOperator()

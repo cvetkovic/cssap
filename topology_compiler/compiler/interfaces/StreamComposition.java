@@ -9,7 +9,8 @@ public abstract class StreamComposition<A, B> extends Operator<A, B>
 
     public StreamComposition(Operator[] consistedOf)
     {
-        super(NodesFactory.getMostLeftOperator(consistedOf[0]).getInputArity(),
+        super(null,
+                NodesFactory.getMostLeftOperator(consistedOf[0]).getInputArity(),
                 NodesFactory.getMostRightOperator(consistedOf[consistedOf.length - 1]).getOutputArity(),
                 1);
 

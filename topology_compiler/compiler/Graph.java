@@ -1,16 +1,18 @@
 package compiler;
 
 import compiler.interfaces.AtomicOperator;
+import compiler.interfaces.InfiniteSource;
 import compiler.interfaces.ParallelComposition;
 import compiler.interfaces.StreamComposition;
 import compiler.interfaces.basic.IConsumer;
-import compiler.interfaces.InfiniteSource;
 import compiler.interfaces.basic.Operator;
-import compiler.storm.SystemMessage;
-import compiler.storm.groupings.CopyGrouping;
 import compiler.storm.StormNode;
 import compiler.storm.StormSink;
 import compiler.storm.StormSource;
+import compiler.storm.SystemMessage;
+import compiler.storm.groupings.CopyGrouping;
+import compiler.storm.groupings.RoundRobinSplitterGrouping;
+import org.apache.storm.generated.Grouping;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.grouping.CustomStreamGrouping;
 import org.apache.storm.spout.SpoutOutputCollector;
@@ -129,6 +131,7 @@ public class Graph implements Serializable
         TopologyBuilder builder = new TopologyBuilder();
         // list of bolts made from atomic operators extracted from the topology
         List<StormNode> atomicOperators = extractAtomicOperators();
+        // TODO: make sure that all atomicOperators names are distinct
 
         ////////////////////////////////////////////////////////////////////
         //              STORM SPOUT CREATION
@@ -146,7 +149,7 @@ public class Graph implements Serializable
         ////////////////////////////////////////////////////////////////////
         for (StormNode node : atomicOperators)
         {
-            BoltDeclarer declarer = builder.setBolt(node.getStormId(), node.getBolt(), node.getOperator().getParallelismHint());
+            BoltDeclarer declarer = builder.setBolt(node.getOperator().getName(), node.getBolt(), node.getOperator().getParallelismHint());
             node.setDeclarer(declarer);
         }
 
@@ -196,20 +199,26 @@ public class Graph implements Serializable
         if (link != null)
         {
             if (link.getOperator().getOutputArity() == 1)
-                declarer.globalGrouping(link.getStormId());
+                declarer.globalGrouping(link.getOperator().getName());
             else
             {
                 // Custom grouping has to be implemented
                 CustomStreamGrouping customGrouping;
                 if (link.getCustomGrouping() == null)
                 {
-                    customGrouping = new CopyGrouping();
+                    if (link.getOperator().getOperation() == Operator.Operation.COPY)
+                        customGrouping = new CopyGrouping(link.getOperator().getName());
+                    else if (link.getOperator().getOperation() == Operator.Operation.ROUND_ROBIN_SPLITTER)
+                        customGrouping = new RoundRobinSplitterGrouping(link.getOperator().getName());
+                    else
+                        throw new RuntimeException("The provided topology cannot be compiled into a Storm topology because one of operators have not been yet implemented.");
+
                     link.setCustomGrouping(customGrouping);
                 }
                 else
                     customGrouping = link.getCustomGrouping();
 
-                declarer.customGrouping(link.getStormId(), customGrouping);
+                declarer.customGrouping(link.getOperator().getName(), customGrouping);
             }
         }
     }
@@ -231,8 +240,9 @@ public class Graph implements Serializable
             @Override
             public void nextTuple()
             {
-                if (i < 5)
-                    for (i = 0; i < 5; i++)
+                // TODO: remove these constraints (DEBUGGING PURPOSE ONLY)
+                if (i < 8)
+                    for (i = 0; i < 8; i++)
                         collector.emit(new Values(source.next(), null));
             }
 
@@ -251,14 +261,16 @@ public class Graph implements Serializable
             private BasicOutputCollector collector;
             private IConsumer[] internalConsumers;
 
+            private Integer[] taskIds;
+
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 this.collector = collector;
                 Object item = input.getValueByField("data");
 
-                for (int i = 0; i < operator.getOutputArity(); i++)
-                    operator.next(i, item);
+                // 0 is irrelevant here
+                operator.next(0, item);
             }
 
             @Override
@@ -271,6 +283,14 @@ public class Graph implements Serializable
             public void prepare(Map stormConf, TopologyContext context)
             {
                 super.prepare(stormConf, context);
+
+                Map<String, Grouping> connectedTo = context.getThisTargets().get("default");
+                Iterator<String> nextOperatorNames = connectedTo.keySet().iterator();
+
+                taskIds = new Integer[connectedTo.size()];
+                int k = 0;
+                while (nextOperatorNames.hasNext())
+                    taskIds[k++] = context.getComponentTasks(nextOperatorNames.next()).get(0);
 
                 internalConsumers = new IConsumer[operator.getOutputArity()];
                 for (int i = 0; i < internalConsumers.length; i++)
@@ -288,6 +308,21 @@ public class Graph implements Serializable
                         {
                             SystemMessage message = null;
                             if (operator.getOutputArity() > 1)
+                            {
+                                int taskGoingTo = taskIds[channelNumber];
+
+                                if (operator.getOperation() == Operator.Operation.COPY)
+                                    message = new SystemMessage(operator.getName(),
+                                            operator.getOperation(),
+                                            new SystemMessage.MeantFor(taskGoingTo));
+                                else if (operator.getOperation() == Operator.Operation.ROUND_ROBIN_SPLITTER)
+                                    message = new SystemMessage(operator.getName(),
+                                            operator.getOperation(),
+                                            new SystemMessage.MeantFor(taskGoingTo));
+                                else
+                                    throw new RuntimeException("Operator grouping has not been implemented.");
+                            }
+                            else
                                 message = new SystemMessage();
 
                             collector.emit(new Values(item, message));
@@ -330,8 +365,8 @@ public class Graph implements Serializable
         this.sinks = sinks.clone();
     }
 
-    public void linkSourceToOperator(InfiniteSource source, Operator compositionFinal)
+    public void linkSourceToOperator(String name, InfiniteSource source, Operator compositionFinal)
     {
-        sources.add(new StormSource(source, NodesFactory.getMostLeftOperator(compositionFinal)));
+        sources.add(new StormSource(name, source, NodesFactory.getMostLeftOperator(compositionFinal)));
     }
 }

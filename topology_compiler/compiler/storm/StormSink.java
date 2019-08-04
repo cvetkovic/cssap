@@ -6,13 +6,13 @@ import java.io.Serializable;
 
 public class StormSink implements Serializable
 {
-    private static int getId = 1;
+    private static int id = 1;
     private String stormName;
     private BaseBasicBolt bolt;
 
-    public StormSink( BaseBasicBolt bolt)
+    public StormSink(BaseBasicBolt bolt)
     {
-        this.stormName = "sink" + getId++;
+        this.stormName = "sink" + id++;
         this.bolt = bolt;
     }
 

@@ -21,9 +21,9 @@ public class Runner
     {
         InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
 
-        Operator multiplierBy10 = NodesFactory.map(1, (Double item) -> item * 10);
-        Operator multiplierBy100 = NodesFactory.map(1, (Double item) -> item * 100);
-        Operator copy = NodesFactory.copy(3);
+        Operator multiplierBy10 = NodesFactory.map("mul10", 1, (Double item) -> item * 10);
+        Operator multiplierBy100 = NodesFactory.map("mu100", 1, (Double item) -> item * 100);
+        Operator copy = NodesFactory.robinRoundSplitter("rrSplitter", 3);
         Operator composition2 = NodesFactory.streamComposition(multiplierBy10, multiplierBy100);
         Operator compositionFinal = NodesFactory.streamComposition(composition2, copy);
         IConsumer printer1 = NodesFactory.sink((item) -> System.out.println("P1: " + item));
@@ -33,7 +33,7 @@ public class Runner
         compositionFinal.subscribe(printer1, printer2, printer3);
 
         Graph graph = new Graph(compositionFinal);
-        graph.linkSourceToOperator(source, compositionFinal);
+        graph.linkSourceToOperator("src1", source, compositionFinal);
         graph.setSinks(printer1, printer2, printer3);
 
         LocalCluster cluster = new LocalCluster();

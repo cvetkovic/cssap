@@ -8,15 +8,14 @@ import java.io.Serializable;
 
 public class StormSource implements Serializable
 {
-    private static int getId = 1;
     private InfiniteSource source;
     private IConsumer consumer;
     private BaseRichSpout spout;
     private String name;
 
-    public StormSource(InfiniteSource source, IConsumer consumer)
+    public StormSource(String name, InfiniteSource source, IConsumer consumer)
     {
-        this.name = "source" + getId++;
+        this.name = name;
         this.source = source;
         this.consumer = consumer;
     }
