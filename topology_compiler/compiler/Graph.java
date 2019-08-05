@@ -81,22 +81,31 @@ public class Graph implements Serializable
 
             return operators;
         }
-        else
+        else if (operator instanceof ParallelComposition)
         {
             List<AtomicOperator> operators = new LinkedList<>();
             ParallelComposition parallelComposition = (ParallelComposition) operator;
+            int x = 0;
 
             Operator[] bricks = parallelComposition.getConsistedOf();
             for (int i = 0; i < bricks.length; i++)
             {
                 if (bricks[i] instanceof AtomicOperator)
-                    operators.add((AtomicOperator) bricks[i]);
+                {
+                    AtomicOperator refactoredOperator = (AtomicOperator)bricks[i];
+                    refactoredOperator.subscribe(Arrays.copyOfRange(parallelComposition.getConsumers(), x, x + refactoredOperator.getOutputArity()));
+                    x += refactoredOperator.getOutputArity();
+
+                    operators.add(refactoredOperator);
+                }
                 else
                     operators.addAll(resolveComposition(bricks[i]));
             }
 
             return operators;
         }
+        else
+            throw new RuntimeException("Unknown composition tried to be resolved.");
     }
 
     private List<StormNode> extractAtomicOperators()
@@ -188,7 +197,14 @@ public class Graph implements Serializable
     {
         for (StormNode n : nodes)
             for (int i = 0; i < n.getOperator().getConsumers().length; i++)
-                if (n.getOperator().getConsumers()[i] == subscribedTo)
+                if (n.getOperator().getConsumers()[i] instanceof ParallelComposition)
+                {
+                    ParallelComposition comp = (ParallelComposition) n.getOperator().getConsumers()[i];
+                    for (int j = 0; j < comp.getConsistedOf().length; j++)
+                        if (comp.getConsistedOf()[j] == subscribedTo)
+                            return n;
+                }
+                else if (n.getOperator().getConsumers()[i] == subscribedTo)
                     return n;
 
         return null;
@@ -241,8 +257,8 @@ public class Graph implements Serializable
             public void nextTuple()
             {
                 // TODO: remove these constraints (DEBUGGING PURPOSE ONLY)
-                if (i < 8)
-                    for (i = 0; i < 8; i++)
+                if (i < 1)
+                    for (i = 0; i < 1; i++)
                         collector.emit(new Values(source.next(), null));
             }
 
@@ -284,13 +300,17 @@ public class Graph implements Serializable
             {
                 super.prepare(stormConf, context);
 
-                Map<String, Grouping> connectedTo = context.getThisTargets().get("default");
-                Iterator<String> nextOperatorNames = connectedTo.keySet().iterator();
+                // needed to implement custom groupings
+                if (operator.getOutputArity() > 1)
+                {
+                    Map<String, Grouping> connectedTo = context.getThisTargets().get("default");
+                    Iterator<String> nextOperatorNames = connectedTo.keySet().iterator();
 
-                taskIds = new Integer[connectedTo.size()];
-                int k = 0;
-                while (nextOperatorNames.hasNext())
-                    taskIds[k++] = context.getComponentTasks(nextOperatorNames.next()).get(0);
+                    taskIds = new Integer[connectedTo.size()];
+                    int k = 0;
+                    while (nextOperatorNames.hasNext())
+                        taskIds[k++] = context.getComponentTasks(nextOperatorNames.next()).get(0);
+                }
 
                 internalConsumers = new IConsumer[operator.getOutputArity()];
                 for (int i = 0; i < internalConsumers.length; i++)
@@ -365,8 +385,8 @@ public class Graph implements Serializable
         this.sinks = sinks.clone();
     }
 
-    public void linkSourceToOperator(String name, InfiniteSource source, Operator compositionFinal)
+    public void linkSourceToOperator(String name, InfiniteSource source, Operator operator)
     {
-        sources.add(new StormSource(name, source, NodesFactory.getMostLeftOperator(compositionFinal)));
+        sources.add(new StormSource(name, source, NodesFactory.getMostLeftOperator(operator)));
     }
 }

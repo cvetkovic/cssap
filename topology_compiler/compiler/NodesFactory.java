@@ -57,7 +57,7 @@ public class NodesFactory
             return getMostRightOperator(consistedOf[consistedOf.length - 1]);
         }
         else if (operator instanceof ParallelComposition)
-            throw new RuntimeException("Not yet implemented.");
+            throw new RuntimeException("Not applicable to parallel composition operator");
 
         return null;
     }
@@ -72,7 +72,7 @@ public class NodesFactory
             return getMostLeftOperator(consistedOf[0]);
         }
         else if (operator instanceof ParallelComposition)
-            throw new RuntimeException("Not yet implemented.");
+            throw new RuntimeException("Not applicable to parallel composition operator");
 
         return null;
     }

@@ -2,22 +2,48 @@ package user;
 
 import compiler.Graph;
 import compiler.NodesFactory;
-import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.InfiniteSource;
+import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
-
-import java.util.Random;
 
 public class Runner
 {
     public static void main(String[] args)
     {
-        composeTest1();
+        parallelCompositionTest();
     }
 
-    private static void composeTest1()
+    private static void parallelCompositionTest()
+    {
+        InfiniteSource source1 = new InfiniteSource(() -> 1.0);
+        InfiniteSource source2 = new InfiniteSource(() -> 2.0);
+
+        Operator f1 = NodesFactory.map("f1", (Double item) -> item * 10);
+        Operator f2 = NodesFactory.map("f2", (Double item) -> item * 100);
+
+        Operator opA = NodesFactory.map("mul_10", 1, (Double item) -> item * 2);
+        Operator opB = NodesFactory.map("mul_100", 1, (Double item) -> item * 4);
+        Operator composition = NodesFactory.parallelComposition(opA, opB);
+        IConsumer printer1 = NodesFactory.sink((item) -> System.out.println("P1: " + item));
+        IConsumer printer2 = NodesFactory.sink((item) -> System.out.println("P2: " + item));
+
+        Graph graph = new Graph(f1, f2, composition);
+        graph.linkSourceToOperator("src1", source1, f1);
+        graph.linkSourceToOperator("src2", source2, f2);
+        f1.subscribe(composition);
+        f2.subscribe(composition);
+        composition.subscribe(printer1, printer2);
+        graph.setSinks(printer1, printer2);
+
+        LocalCluster cluster = new LocalCluster();
+        Config config = new Config();
+
+        cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());
+    }
+
+    /*private static void composeTest1()
     {
         InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
 
@@ -40,7 +66,7 @@ public class Runner
         Config config = new Config();
 
         cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());
-    }
+    }*/
 
     /*private static void mergeTest()
     {
