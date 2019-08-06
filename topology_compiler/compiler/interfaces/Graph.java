@@ -3,7 +3,11 @@ package compiler.interfaces;
 import compiler.AtomicGraph;
 import compiler.ParallelGraph;
 import compiler.SerialGraph;
+import compiler.interfaces.basic.IConsumer;
+import compiler.interfaces.basic.Operator;
 import compiler.interfaces.basic.Source;
+import compiler.storm.SystemMessage;
+import org.apache.storm.generated.Grouping;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
@@ -16,6 +20,7 @@ import org.apache.storm.tuple.Fields;
 import org.apache.storm.tuple.Tuple;
 import org.apache.storm.tuple.Values;
 
+import java.util.Iterator;
 import java.util.Map;
 
 public abstract class Graph
@@ -57,6 +62,7 @@ public abstract class Graph
         BaseRichSpout spout = generateSpout(source);
 
 
+
         return builder.createTopology();
     }
 
@@ -75,7 +81,7 @@ public abstract class Graph
             @Override
             public void nextTuple()
             {
-                collector.emit(new Values(source.next()));
+                collector.emit(new Values(source.next(), null));
             }
 
             @Override
@@ -86,28 +92,83 @@ public abstract class Graph
         };
     }
 
-    public BaseBasicBolt generateBolt(AtomicGraph graph)
+    private BaseBasicBolt generateOperator(AtomicGraph operator)
     {
         return new BaseBasicBolt()
         {
-            @Override
-            public void prepare(Map stormConf, TopologyContext context)
-            {
-                super.prepare(stormConf, context);
+            private BasicOutputCollector collector;
+            private IConsumer[] internalConsumers;
 
-
-            }
+            private Integer[] taskIds;
 
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
+                this.collector = collector;
+                Object item = input.getValueByField("data");
 
+                // 0 is irrelevant here
+                operator.getOperator().next(0, item);
             }
 
             @Override
             public void declareOutputFields(OutputFieldsDeclarer declarer)
             {
                 declarer.declare(new Fields("data", "message"));
+            }
+
+            @Override
+            public void prepare(Map stormConf, TopologyContext context)
+            {
+                super.prepare(stormConf, context);
+
+                Map<String, Grouping> connectedTo = context.getThisTargets().get("default");
+                Iterator<String> nextOperatorNames = connectedTo.keySet().iterator();
+
+                taskIds = new Integer[connectedTo.size()];
+                int k = 0;
+                while (nextOperatorNames.hasNext())
+                    taskIds[k++] = context.getComponentTasks(nextOperatorNames.next()).get(0);
+
+                internalConsumers = new IConsumer[operator.getOutputArity()];
+                for (int i = 0; i < internalConsumers.length; i++)
+                {
+                    internalConsumers[i] = new IConsumer()
+                    {
+                        @Override
+                        public int getInputArity()
+                        {
+                            throw new RuntimeException("This method was never supposed to be called.");
+                        }
+
+                        @Override
+                        public void next(int channelNumber, Object item)
+                        {
+                            SystemMessage message = null;
+                            if (operator.getOutputArity() > 1)
+                            {
+                                int taskGoingTo = taskIds[channelNumber];
+
+                                if (operator.getOperator().getOperation() == Operator.Operation.COPY)
+                                    message = new SystemMessage(operator.getName(),
+                                            operator.getOperator().getOperation(),
+                                            new SystemMessage.MeantFor(taskGoingTo));
+                                else if (operator.getOperator().getOperation() == Operator.Operation.ROUND_ROBIN_SPLITTER)
+                                    message = new SystemMessage(operator.getName(),
+                                            operator.getOperator().getOperation(),
+                                            new SystemMessage.MeantFor(taskGoingTo));
+                                else
+                                    throw new RuntimeException("Operator grouping has not been implemented.");
+                            }
+                            else
+                                message = new SystemMessage();
+
+                            collector.emit(new Values(item, message));
+                        }
+                    };
+                }
+
+                operator.getOperator().subscribe(internalConsumers);
             }
         };
     }

@@ -58,6 +58,25 @@ public class Runner
         cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());*/
     }
 
+
+
+
+
+
+
+
+
+
+
+
+    ///////////////////////////////////////////////////////////////////
+    ///////////////////// OLD TESTS
+    ///////////////////////////////////////////////////////////////////
+
+
+
+
+
     /*private static void composeTest1()
     {
         InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
