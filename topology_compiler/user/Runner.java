@@ -1,12 +1,12 @@
 package user;
 
-import compiler.Graph;
+import compiler.AtomicGraph;
 import compiler.NodesFactory;
+import compiler.ParallelGraph;
+import compiler.SerialGraph;
 import compiler.interfaces.InfiniteSource;
-import compiler.interfaces.basic.IConsumer;
-import compiler.interfaces.basic.Operator;
-import org.apache.storm.Config;
-import org.apache.storm.LocalCluster;
+
+import java.util.Random;
 
 public class Runner
 {
@@ -15,32 +15,47 @@ public class Runner
         parallelCompositionTest();
     }
 
+    private static void soloTest()
+    {
+        InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
+
+        AtomicGraph g = NodesFactory.sink("printer", (item) -> System.out.println(item));
+        g.executeLocal(source);
+    }
+
+    private static void serialCompositionTest()
+    {
+        InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
+
+        AtomicGraph filter = NodesFactory.filter("filter", (Double item) -> item > 0.5);
+        AtomicGraph map = NodesFactory.map("map", (Double item) -> 2 * item);
+        AtomicGraph fold = NodesFactory.fold("fold", 0.0, (Double x, Double y) -> x + y);
+        AtomicGraph printer = NodesFactory.sink("sink", (item) -> System.out.println(item));
+
+        SerialGraph graph = new SerialGraph(filter, map, fold, printer);
+        graph.executeLocal(source);
+    }
+
     private static void parallelCompositionTest()
     {
-        InfiniteSource source1 = new InfiniteSource(() -> 1.0);
-        InfiniteSource source2 = new InfiniteSource(() -> 2.0);
+        InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
+        AtomicGraph copy = NodesFactory.copy("copy", 2);
 
-        Operator f1 = NodesFactory.map("f1", (Double item) -> item * 10);
-        Operator f2 = NodesFactory.map("f2", (Double item) -> item * 100);
+        AtomicGraph filter1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
+        AtomicGraph filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);
 
-        Operator opA = NodesFactory.map("mul_10", 1, (Double item) -> item * 2);
-        Operator opB = NodesFactory.map("mul_100", 1, (Double item) -> item * 4);
-        Operator composition = NodesFactory.parallelComposition(opA, opB);
-        IConsumer printer1 = NodesFactory.sink((item) -> System.out.println("P1: " + item));
-        IConsumer printer2 = NodesFactory.sink((item) -> System.out.println("P2: " + item));
+        AtomicGraph sink1 = NodesFactory.sink("sink1", (item) -> System.out.println("Printer1: " + item));
+        AtomicGraph sink2 = NodesFactory.sink("sink2", (item) -> System.out.println("Printer2:                 " + item));
+        ParallelGraph gg = new ParallelGraph(new AtomicGraph[]{filter1, filter2},
+                new AtomicGraph[]{copy},
+                new AtomicGraph[] {sink1, sink2});
 
-        Graph graph = new Graph(f1, f2, composition);
-        graph.linkSourceToOperator("src1", source1, f1);
-        graph.linkSourceToOperator("src2", source2, f2);
-        f1.subscribe(composition);
-        f2.subscribe(composition);
-        composition.subscribe(printer1, printer2);
-        graph.setSinks(printer1, printer2);
+        copy.executeLocal(source);
 
-        LocalCluster cluster = new LocalCluster();
+        /*LocalCluster cluster = new LocalCluster();
         Config config = new Config();
 
-        cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());
+        cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());*/
     }
 
     /*private static void composeTest1()
