@@ -34,6 +34,10 @@ public class Runner
 
         SerialGraph graph = new SerialGraph(filter, map, fold, printer);
         graph.executeLocal(source);
+        // Graph graph = new SerialGraph(filter, map, fold);
+		// Operator op = graph.getOperator();
+		// op.subscribe(printer);
+		// while (source.hasNext()) { op.next(0, source.next()) }
     }
 
     private static void parallelCompositionTest()
