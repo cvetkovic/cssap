@@ -1,7 +1,5 @@
 package compiler.storm;
 
-import compiler.interfaces.basic.Operator;
-
 import java.io.Serializable;
 
 public class SystemMessage implements Serializable
@@ -22,28 +20,21 @@ public class SystemMessage implements Serializable
     }
 
     private String operatorName;
-    private Operator.Operation operation;
     private Payload payload;
 
     public SystemMessage()
     {
     }
 
-    public SystemMessage(String operatorName, Operator.Operation operation, Payload payload)
+    public SystemMessage(String operatorName, Payload payload)
     {
         this.operatorName = operatorName;
-        this.operation = operation;
         this.payload = payload;
     }
 
     public String getOperatorName()
     {
         return operatorName;
-    }
-
-    public Operator.Operation getOperation()
-    {
-        return operation;
     }
 
     public Payload getPayload()

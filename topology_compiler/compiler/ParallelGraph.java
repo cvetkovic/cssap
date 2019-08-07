@@ -2,6 +2,7 @@ package compiler;
 
 import compiler.interfaces.Graph;
 import compiler.interfaces.basic.IConsumer;
+import compiler.interfaces.basic.Operator;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -11,68 +12,20 @@ public class ParallelGraph extends Graph
     private int inputArity;
     private int outputArity;
 
+    private Operator[] operators;
+    private Map<Integer, Operator> channelMapping;
 
-    public ParallelGraph(AtomicGraph[] parallelNodes, AtomicGraph[] predecessor, AtomicGraph[] successor)
+    public ParallelGraph(Operator... arrayOfOperators)
     {
-        for (AtomicGraph g : parallelNodes)
+        for (Operator g : arrayOfOperators)
         {
-            inputArity += g.operator.getInputArity();
-            outputArity += g.operator.getOutputArity();
+            inputArity += g.getInputArity();
+            outputArity += g.getOutputArity();
         }
 
-        if (parallelNodes == null || parallelNodes.length == 0)
-            throw new RuntimeException("Invalid arguments for creating graphs.");
-        else if (getInputArity() != getSummedOutputArity(predecessor))
-            throw new RuntimeException("Input arity of parallel composition graph does not match to output arity of operators");
-
-        Map<AtomicGraph, Integer> sourceUsage = new HashMap<>();
-
-        for (int k = 0; k < predecessor.length; k++)
-        {
-            if (sourceUsage.get(predecessor[k]) == null)
-                sourceUsage.put(predecessor[k], 0);
-
-            int old = sourceUsage.get(predecessor[k]);
-            IConsumer[] tmp = new IConsumer[predecessor[k].getOutputArity() - old];
-            for (int x = 0; x < tmp.length; x++)
-                tmp[x] = findFirstUnusedInput(parallelNodes).getOperator();
-
-            predecessor[k].getOperator().subscribe(tmp);
-
-            sourceUsage.replace(predecessor[k], old + tmp.length);
-        }
-
-        int x = 0;
-        for (int i = 0; i < parallelNodes.length; i++)
-        {
-            int writeAt = 0;
-            IConsumer[] cs = new IConsumer[parallelNodes[i].getOutputArity()];
-            for (; x < successor.length && writeAt < cs.length; x++)
-                cs[writeAt++] = successor[x].getOperator();
-
-            parallelNodes[i].getOperator().subscribe(cs);
-        }
-    }
-
-    private Map<AtomicGraph, Integer> destinationUsage = new HashMap<>();
-    private AtomicGraph findFirstUnusedInput(AtomicGraph[] list)
-    {
-        for (int i = 0; i < list.length; i++)
-        {
-            if (destinationUsage.get(list[i]) == null)
-                destinationUsage.put(list[i], 0);
-
-            int old = destinationUsage.get(list[i]);
-            if (old < list[i].getInputArity())
-            {
-                destinationUsage.replace(list[i], old + 1);
-                return list[i];
-            }
-            else
-                continue;
-        }
-
-        return null;
+        this.operators = arrayOfOperators;
+        channelMapping = new HashMap<>(operators.length);
+        // TODO: use channelMapping to calculate order number of channel where the item will be sent
     }
 
     @Override
@@ -87,12 +40,48 @@ public class ParallelGraph extends Graph
         return outputArity;
     }
 
-    private int getSummedOutputArity(AtomicGraph[] graphs)
+    @Override
+    public Operator getOperator()
     {
-        int r = 0;
-        for (AtomicGraph g : graphs)
-            r += g.getOutputArity();
+        return new Operator("", inputArity, outputArity, 1)
+        {
+            @Override
+            public void subscribe(IConsumer[] consumers)
+            {
+                super.subscribe(consumers);
 
-        return r;
+                int readFrom = 0;
+                for (int i = 0; i < operators.length; i++)
+                {
+                    int outputArity = operators[i].getOutputArity();
+                    IConsumer[] tmp = new IConsumer[outputArity];
+                    for (int j = 0; j < outputArity; j++)
+                        tmp[j] = consumers[readFrom++];
+
+                    operators[i].subscribe(tmp);
+                }
+            }
+
+            @Override
+            public void next(int channelIdentifier, Object item)
+            {
+                int operatorNo = 0;
+                int channel = 0;
+                int sum = 0;
+
+                for (int i = 0; i < operators.length; i++)
+                {
+                    sum += operators[i].getOutputArity();
+                    if (channelIdentifier < sum)
+                    {
+                        operatorNo = i;
+                        channel = sum - channelIdentifier;
+                        break;
+                    }
+                }
+
+                operators[operatorNo].next(channel, item);
+            }
+        };
     }
 }

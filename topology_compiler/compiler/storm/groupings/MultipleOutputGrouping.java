@@ -1,6 +1,5 @@
 package compiler.storm.groupings;
 
-import compiler.interfaces.basic.Operator;
 import compiler.storm.SystemMessage;
 import org.apache.storm.generated.GlobalStreamId;
 import org.apache.storm.grouping.CustomStreamGrouping;
@@ -10,12 +9,12 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
-public class RoundRobinSplitterGrouping implements CustomStreamGrouping
+public class MultipleOutputGrouping implements CustomStreamGrouping
 {
     private List<Integer> targetTasks;
     private String operatorName;
 
-    public RoundRobinSplitterGrouping(String operatorName)
+    public MultipleOutputGrouping(String operatorName)
     {
         this.operatorName = operatorName;
     }
@@ -32,7 +31,7 @@ public class RoundRobinSplitterGrouping implements CustomStreamGrouping
         SystemMessage systemMessage = (SystemMessage) values.get(1);
         SystemMessage.MeantFor payload = (SystemMessage.MeantFor) ((SystemMessage) values.get(1)).getPayload();
 
-        if (systemMessage.getOperatorName().equals(operatorName) && systemMessage.getOperation() == Operator.Operation.ROUND_ROBIN_SPLITTER)
+        if (systemMessage.getOperatorName().equals(operatorName))
         {
             if (targetTasks.contains(payload.tupleMeantFor))
                 return Collections.singletonList(payload.tupleMeantFor);

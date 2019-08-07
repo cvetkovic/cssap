@@ -4,7 +4,10 @@ import compiler.AtomicGraph;
 import compiler.NodesFactory;
 import compiler.ParallelGraph;
 import compiler.SerialGraph;
+import compiler.interfaces.Graph;
 import compiler.interfaces.InfiniteSource;
+import compiler.interfaces.basic.IConsumer;
+import compiler.interfaces.basic.Operator;
 
 import java.util.Random;
 
@@ -17,60 +20,58 @@ public class Runner
 
     private static void soloTest()
     {
-        InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
+        Random r = new Random();
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        Operator filter = NodesFactory.filter("filter", (Double item) -> item >= 0.5);
+        IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
 
-        AtomicGraph g = NodesFactory.sink("printer", (item) -> System.out.println(item));
-        g.executeLocal(source);
+        Graph graph = new AtomicGraph(filter);
+        Operator op = graph.getOperator();
+        op.subscribe(printer);
+        graph.executeLocal(source);
     }
 
     private static void serialCompositionTest()
     {
-        InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
+        Random r = new Random();
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
 
-        AtomicGraph filter = NodesFactory.filter("filter", (Double item) -> item > 0.5);
-        AtomicGraph map = NodesFactory.map("map", (Double item) -> 2 * item);
-        AtomicGraph fold = NodesFactory.fold("fold", 0.0, (Double x, Double y) -> x + y);
-        AtomicGraph printer = NodesFactory.sink("sink", (item) -> System.out.println(item));
+        Operator filter = NodesFactory.filter("filter", (Double item) -> item > 0.5);
+        Operator map = NodesFactory.map("map", (Double item) -> 2 * item);
+        Operator fold = NodesFactory.fold("fold", 0.0, (Double x, Double y) -> x + y);
+        IConsumer printer = NodesFactory.sink("sink", (item) -> System.out.println(item));
 
-        SerialGraph graph = new SerialGraph(filter, map, fold, printer);
+        Graph graph = new SerialGraph(filter, map, fold);
+        Operator op = graph.getOperator();
+        op.subscribe(printer);
         graph.executeLocal(source);
-        // Graph graph = new SerialGraph(filter, map, fold);
-		// Operator op = graph.getOperator();
-		// op.subscribe(printer);
-		// while (source.hasNext()) { op.next(0, source.next()) }
     }
 
     private static void parallelCompositionTest()
     {
-        InfiniteSource source = new InfiniteSource(() -> new Random().nextDouble());
-        AtomicGraph copy = NodesFactory.copy("copy", 2);
+        Random r = new Random();
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        Operator copy = NodesFactory.copy("copy", 2);
 
-        AtomicGraph filter1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
-        AtomicGraph filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);
+        Operator filter1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
+        Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);
 
-        AtomicGraph sink1 = NodesFactory.sink("sink1", (item) -> System.out.println("Printer1: " + item));
-        AtomicGraph sink2 = NodesFactory.sink("sink2", (item) -> System.out.println("Printer2:                 " + item));
-        ParallelGraph gg = new ParallelGraph(new AtomicGraph[]{filter1, filter2},
-                new AtomicGraph[]{copy},
-                new AtomicGraph[] {sink1, sink2});
+        IConsumer sink1 = NodesFactory.sink("sink1", (item) -> System.out.println("Printer1: " + item));
+        IConsumer sink2 = NodesFactory.sink("sink2", (item) -> System.out.println("Printer2:                 " + item));
 
-        copy.executeLocal(source);
+        Graph parallel = new ParallelGraph(filter1, filter2);
+        Graph graph = new SerialGraph(copy, parallel.getOperator());
+        Operator op = graph.getOperator();
+        op.subscribe(sink1, sink2);
+        graph.executeLocal(source);
+
+
 
         /*LocalCluster cluster = new LocalCluster();
         Config config = new Config();
 
         cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());*/
     }
-
-
-
-
-
-
-
-
-
-
 
 
     ///////////////////////////////////////////////////////////////////

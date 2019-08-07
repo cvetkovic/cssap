@@ -1,8 +1,6 @@
 package compiler.interfaces;
 
 import compiler.AtomicGraph;
-import compiler.ParallelGraph;
-import compiler.SerialGraph;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
 import compiler.interfaces.basic.Source;
@@ -31,6 +29,8 @@ public abstract class Graph
 
     public abstract int getOutputArity();
 
+    public abstract Operator getOperator();
+
     public String getName()
     {
         return name;
@@ -39,28 +39,13 @@ public abstract class Graph
     public void executeLocal(Source source)
     {
         while (source.hasNext())
-        {
-            if (this instanceof AtomicGraph)
-                ((AtomicGraph) this).getOperator().next(0, source.next());
-            else if (this instanceof SerialGraph)
-                ((SerialGraph) this).getGraphs()[0].getOperator().next(0, source.next());
-            else if (this instanceof ParallelGraph)
-            {
-                ParallelGraph g = (ParallelGraph) this;
-
-                if (g.getInputArity() == 1)
-                    ((AtomicGraph) this).getOperator().next(0, source.next());
-                else
-                    throw new RuntimeException("Compiler doesn't know to which channel to send tuple.");
-            }
-        }
+            getOperator().next(0, source.next());
     }
 
     public StormTopology getStormTopology(Source source, AtomicGraph sink)
     {
         TopologyBuilder builder = new TopologyBuilder();
         BaseRichSpout spout = generateSpout(source);
-
 
 
         return builder.createTopology();
@@ -148,17 +133,8 @@ public abstract class Graph
                             if (operator.getOutputArity() > 1)
                             {
                                 int taskGoingTo = taskIds[channelNumber];
-
-                                if (operator.getOperator().getOperation() == Operator.Operation.COPY)
-                                    message = new SystemMessage(operator.getName(),
-                                            operator.getOperator().getOperation(),
-                                            new SystemMessage.MeantFor(taskGoingTo));
-                                else if (operator.getOperator().getOperation() == Operator.Operation.ROUND_ROBIN_SPLITTER)
-                                    message = new SystemMessage(operator.getName(),
-                                            operator.getOperator().getOperation(),
-                                            new SystemMessage.MeantFor(taskGoingTo));
-                                else
-                                    throw new RuntimeException("Operator grouping has not been implemented.");
+                                message = new SystemMessage(operator.getName(),
+                                        new SystemMessage.MeantFor(taskGoingTo));
                             }
                             else
                                 message = new SystemMessage();
