@@ -8,6 +8,8 @@ import compiler.interfaces.Graph;
 import compiler.interfaces.InfiniteSource;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
+import org.apache.storm.Config;
+import org.apache.storm.LocalCluster;
 
 import java.util.Random;
 
@@ -28,7 +30,9 @@ public class Runner
         Graph graph = new AtomicGraph(filter);
         Operator op = graph.getOperator();
         op.subscribe(printer);
-        graph.executeLocal(source);
+        //graph.executeLocal(source);
+
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
     }
 
     private static void serialCompositionTest()
@@ -44,7 +48,9 @@ public class Runner
         Graph graph = new SerialGraph(filter, map, fold);
         Operator op = graph.getOperator();
         op.subscribe(printer);
-        graph.executeLocal(source);
+        //graph.executeLocal(source);
+
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
     }
 
     private static void parallelCompositionTest()
@@ -63,16 +69,10 @@ public class Runner
         Graph graph = new SerialGraph(copy, parallel.getOperator());
         Operator op = graph.getOperator();
         op.subscribe(sink1, sink2);
-        graph.executeLocal(source);
+        //graph.executeLocal(source);
 
-
-
-        /*LocalCluster cluster = new LocalCluster();
-        Config config = new Config();
-
-        cluster.submitTopology("topologyCompiler", config, graph.getStormTopology());*/
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
     }
-
 
     ///////////////////////////////////////////////////////////////////
     ///////////////////// OLD TESTS

@@ -49,4 +49,14 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IPro
     {
         return name;
     }
+
+    public IConsumer[] getConsumers()
+    {
+        return consumers;
+    }
+
+    public Operator[] getParallelConstituent()
+    {
+        return null;
+    }
 }

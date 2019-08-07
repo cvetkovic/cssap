@@ -62,4 +62,9 @@ public class SerialGraph extends Graph
             }
         };
     }
+
+    public Operator[] getConstituentGraphs()
+    {
+        return graphs;
+    }
 }

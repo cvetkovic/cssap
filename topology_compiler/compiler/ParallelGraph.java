@@ -4,16 +4,12 @@ import compiler.interfaces.Graph;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
 
-import java.util.HashMap;
-import java.util.Map;
-
 public class ParallelGraph extends Graph
 {
     private int inputArity;
     private int outputArity;
 
     private Operator[] operators;
-    private Map<Integer, Operator> channelMapping;
 
     public ParallelGraph(Operator... arrayOfOperators)
     {
@@ -24,8 +20,6 @@ public class ParallelGraph extends Graph
         }
 
         this.operators = arrayOfOperators;
-        channelMapping = new HashMap<>(operators.length);
-        // TODO: use channelMapping to calculate order number of channel where the item will be sent
     }
 
     @Override
@@ -45,6 +39,12 @@ public class ParallelGraph extends Graph
     {
         return new Operator("", inputArity, outputArity, 1)
         {
+            @Override
+            public Operator[] getParallelConstituent()
+            {
+                return operators;
+            }
+
             @Override
             public void subscribe(IConsumer[] consumers)
             {
@@ -80,6 +80,7 @@ public class ParallelGraph extends Graph
                     }
                 }
 
+                // TODO: calculation can be made in constructor and be static
                 operators[operatorNo].next(channel, item);
             }
         };
