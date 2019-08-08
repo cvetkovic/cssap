@@ -13,6 +13,7 @@ public class MultipleOutputGrouping implements CustomStreamGrouping
 {
     private List<Integer> targetTasks;
     private String operatorName;
+    private static List<Integer> emptyList = new LinkedList<>();
 
     public MultipleOutputGrouping(String operatorName)
     {
@@ -29,16 +30,20 @@ public class MultipleOutputGrouping implements CustomStreamGrouping
     public List<Integer> chooseTasks(int taskId, List<Object> values)
     {
         SystemMessage systemMessage = (SystemMessage) values.get(1);
-        SystemMessage.MeantFor payload = (SystemMessage.MeantFor) ((SystemMessage) values.get(1)).getPayload();
+        if (systemMessage == null)
+            return targetTasks;
 
-        if (systemMessage.getOperatorName().equals(operatorName))
+        SystemMessage.Payload payload = ((SystemMessage) values.get(1)).getPayloadByType(SystemMessage.MessageTypes.MEANT_FOR);
+
+        if (payload != null)
         {
-            if (targetTasks.contains(payload.tupleMeantFor))
-                return Collections.singletonList(payload.tupleMeantFor);
-            else
-                return new LinkedList<>();
+            if (((SystemMessage.MeantFor)payload).operatorName.equals(operatorName))
+                if (targetTasks.contains(((SystemMessage.MeantFor)payload).tupleMeantFor))
+                    return Collections.singletonList(((SystemMessage.MeantFor)payload).tupleMeantFor);
+                else
+                    return emptyList;
         }
-        else
-            return new LinkedList<>();
+
+        return targetTasks;
     }
 }

@@ -154,7 +154,10 @@ public abstract class Graph implements Serializable
             @Override
             public void nextTuple()
             {
-                collector.emit(new Values(source.next(), null));
+                SystemMessage message = new SystemMessage();
+                message.addPayload(new SystemMessage.InputChannelSpecification(0));
+
+                collector.emit(new Values(source.next(), message));
             }
 
             @Override
@@ -178,10 +181,12 @@ public abstract class Graph implements Serializable
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 this.collector = collector;
-                Object item = input.getValueByField("data");
 
-                // 0 is irrelevant here
-                operator.getOperator().next(0, item);
+                Object item = input.getValueByField("data");
+                SystemMessage message = (SystemMessage)input.getValueByField("message");
+                SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
+
+                operator.getOperator().next(((SystemMessage.InputChannelSpecification)payload).inputChannel, item);
             }
 
             @Override
@@ -204,6 +209,7 @@ public abstract class Graph implements Serializable
                     taskIds[k++] = context.getComponentTasks(nextOperatorNames.next()).get(0);
 
                 internalConsumers = new IConsumer[operator.getOutputArity()];
+
                 for (int i = 0; i < internalConsumers.length; i++)
                 {
                     internalConsumers[i] = new IConsumer()
@@ -217,15 +223,14 @@ public abstract class Graph implements Serializable
                         @Override
                         public void next(int channelNumber, Object item)
                         {
-                            SystemMessage message = null;
+                            SystemMessage message = new SystemMessage();
                             if (operator.getOutputArity() > 1)
                             {
                                 int taskGoingTo = taskIds[channelNumber];
-                                message = new SystemMessage(operator.getOperator().getName(),
-                                        new SystemMessage.MeantFor(taskGoingTo));
-                            }
-                            else
                                 message = new SystemMessage();
+                                message.addPayload(new SystemMessage.MeantFor(operator.getOperator().getName(), taskGoingTo));
+                            }
+                            message.addPayload(new SystemMessage.InputChannelSpecification(channelNumber));
 
                             collector.emit(new Values(item, message));
                         }

@@ -116,4 +116,29 @@ public class NodesFactory
             }
         };
     }
+
+    public static <A> Operator<A, A> duplicate(String name)
+    {
+        return new Operator<A, A>(name, 1, 1, 1)
+        {
+            @Override
+            public void next(int channelIdentifier, A item)
+            {
+                consumers[0].next(0, item);
+                consumers[0].next(0, item);
+            }
+        };
+    }
+
+    public static <A> Operator<A,A> buffer(String name)
+    {
+        return new Operator<A, A>(name,1,1,1)
+        {
+            @Override
+            public void next(int channelIdentifier, A item)
+            {
+                consumers[0].next(channelIdentifier, item);
+            }
+        };
+    }
 }

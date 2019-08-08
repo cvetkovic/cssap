@@ -1,9 +1,32 @@
 package compiler.storm;
 
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
 
 public class SystemMessage implements Serializable
 {
+    public enum MessageTypes
+    {
+        MEANT_FOR(0),
+        INPUT_CHANNEL(1);
+        // WHEN ADDING NEW MESSAGE TYPES CHANGE RETURNED VALUE IN count() METHOD
+
+        private final int i;
+
+        MessageTypes(int i)
+        {
+            this.i = i;
+        }
+
+        private static int count()
+        {
+            return 2;
+        }
+    }
+
+    private Map<MessageTypes, Payload> payloads = new HashMap<>(MessageTypes.count());
+
     public static class Payload
     {
 
@@ -12,33 +35,37 @@ public class SystemMessage implements Serializable
     public static class MeantFor extends Payload
     {
         public int tupleMeantFor;
+        public String operatorName;
 
-        public MeantFor(int tupleMeantFor)
+        public MeantFor(String operatorName, int tupleMeantFor)
         {
             this.tupleMeantFor = tupleMeantFor;
+            this.operatorName = operatorName;
         }
     }
 
-    private String operatorName;
-    private Payload payload;
-
-    public SystemMessage()
+    public static class InputChannelSpecification extends Payload
     {
+        public int inputChannel;
+
+        public InputChannelSpecification(int inputChannel)
+        {
+            this.inputChannel = inputChannel;
+        }
     }
 
-    public SystemMessage(String operatorName, Payload payload)
+    public void addPayload(Payload p)
     {
-        this.operatorName = operatorName;
-        this.payload = payload;
+        if (p instanceof MeantFor)
+            payloads.put(MessageTypes.MEANT_FOR, p);
+        else if (p instanceof InputChannelSpecification)
+            payloads.put(MessageTypes.INPUT_CHANNEL, p);
+        else
+            throw new RuntimeException("Not supported type of payload.");
     }
 
-    public String getOperatorName()
+    public Payload getPayloadByType(MessageTypes type)
     {
-        return operatorName;
-    }
-
-    public Payload getPayload()
-    {
-        return payload;
+        return payloads.get(type);
     }
 }

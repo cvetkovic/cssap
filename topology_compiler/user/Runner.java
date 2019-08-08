@@ -1,6 +1,5 @@
 package user;
 
-import compiler.AtomicGraph;
 import compiler.NodesFactory;
 import compiler.ParallelGraph;
 import compiler.SerialGraph;
@@ -20,38 +19,55 @@ public class Runner
         parallelCompositionTest();
     }
 
-    private static void soloTest()
+    private static void orderPreservingTest1()
     {
         Random r = new Random();
         InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
-        Operator filter = NodesFactory.filter("filter", (Double item) -> item >= 0.5);
+        Operator copy = NodesFactory.copy("copy", 2);
+        Operator buffer = NodesFactory.buffer("buffer");
+        Operator duplicate = NodesFactory.duplicate("duplicate");
+        Operator merge = NodesFactory.merge("merge", 2);
+        IConsumer consumer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+
+
+    }
+
+    private static void orderPreservingTest2()
+    {
+        Random r = new Random();
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        Operator multiplier = NodesFactory.map("multiplier", (Double item) -> item * 3);
+        Operator copy = NodesFactory.copy("copy", 3);
+        Operator filter1 = NodesFactory.filter("filter1", (Double item) -> item < 1);
+        Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 1 && item < 2);
+        Operator filter3 = NodesFactory.filter("filter3", (Double item) -> item >= 2 && item < 3);
+        Operator merge = NodesFactory.merge("merger", 3);
         IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
 
-        Graph graph = new AtomicGraph(filter);
-        Operator op = graph.getOperator();
-        op.subscribe(printer);
-        //graph.executeLocal(source);
 
-        new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
     }
 
-    private static void serialCompositionTest()
+    /*private static class OrderGenerator implements Serializable
     {
-        Random r = new Random();
-        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        private int sequence = 1;
 
-        Operator filter = NodesFactory.filter("filter", (Double item) -> item > 0.5);
-        Operator map = NodesFactory.map("map", (Double item) -> 2 * item);
-        Operator fold = NodesFactory.fold("fold", 0.0, (Double x, Double y) -> x + y);
-        IConsumer printer = NodesFactory.sink("sink", (item) -> System.out.println(item));
-
-        Graph graph = new SerialGraph(filter, map, fold);
-        Operator op = graph.getOperator();
-        op.subscribe(printer);
-        //graph.executeLocal(source);
-
-        new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
+        public int next()
+        {
+            return sequence++;
+        }
     }
+
+    private static void orderPreservingTest3()
+    {
+        OrderGenerator og = new OrderGenerator();
+        InfiniteSource source = new InfiniteSource(() -> og.next());
+
+
+        Operator merge = NodesFactory.merge("merge", 2);
+        IConsumer consumer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+
+
+    }*/
 
     private static void parallelCompositionTest()
     {
