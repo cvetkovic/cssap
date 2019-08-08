@@ -4,19 +4,23 @@ import compiler.interfaces.Graph;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
 
+import java.util.ArrayList;
+
 public class SerialGraph extends Graph
 {
     protected Operator[] graphs;
 
-    public SerialGraph(Operator... graphs)
+    public SerialGraph(Graph... graphs)
     {
-        this.graphs = graphs;
+        ArrayList<Operator> al = new ArrayList<>();
+        for (Graph g : graphs)
+            al.add(g.getOperator());
+
+        this.graphs = al.toArray(new Operator[al.size()]);
 
         for (int i = 0; i < graphs.length - 1; i++)
             if (graphs[i].getOutputArity() != graphs[i + 1].getInputArity())
                 throw new RuntimeException("Input arity of the first operator does not match the arity of the second operator.");
-
-        this.graphs = graphs;
     }
 
     @Override

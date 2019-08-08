@@ -1,5 +1,6 @@
 package user;
 
+import compiler.AtomicGraph;
 import compiler.NodesFactory;
 import compiler.ParallelGraph;
 import compiler.SerialGraph;
@@ -81,8 +82,8 @@ public class Runner
         IConsumer sink1 = NodesFactory.sink("sink1", (item) -> System.out.println("Printer1: " + item));
         IConsumer sink2 = NodesFactory.sink("sink2", (item) -> System.out.println("Printer2:                 " + item));
 
-        Graph parallel = new ParallelGraph(filter1, filter2);
-        Graph graph = new SerialGraph(copy, parallel.getOperator());
+        Graph parallel = new ParallelGraph(new AtomicGraph(filter1), new AtomicGraph(filter2));
+        Graph graph = new SerialGraph(new AtomicGraph(copy), parallel);
         Operator op = graph.getOperator();
         op.subscribe(sink1, sink2);
         //graph.executeLocal(source);

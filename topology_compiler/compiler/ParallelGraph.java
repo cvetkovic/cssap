@@ -4,6 +4,8 @@ import compiler.interfaces.Graph;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
 
+import java.util.ArrayList;
+
 public class ParallelGraph extends Graph
 {
     private int inputArity;
@@ -11,15 +13,17 @@ public class ParallelGraph extends Graph
 
     private Operator[] operators;
 
-    public ParallelGraph(Operator... arrayOfOperators)
+    public ParallelGraph(Graph... graphs)
     {
-        for (Operator g : arrayOfOperators)
+        ArrayList<Operator> o = new ArrayList<>();
+        for (Graph g : graphs)
         {
             inputArity += g.getInputArity();
             outputArity += g.getOutputArity();
+            o.add(g.getOperator());
         }
 
-        this.operators = arrayOfOperators;
+        operators = o.toArray(new Operator[o.size()]);
     }
 
     @Override

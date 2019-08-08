@@ -250,7 +250,10 @@ public abstract class Graph implements Serializable
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 Object item = input.getValueByField("data");
-                sink.next(0, item);
+                SystemMessage message = (SystemMessage)input.getValueByField("message");
+                SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
+
+                sink.next(((SystemMessage.InputChannelSpecification)payload).inputChannel, item);
             }
 
             @Override
