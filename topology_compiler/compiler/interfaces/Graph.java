@@ -107,8 +107,17 @@ public abstract class Graph implements Serializable
 
                 if (previousOperator.getOutputArity() == 1)
                 {
-                    BoltDeclarer declarer = builder.setBolt(((Operator) bolt.getOperator()).getName(), bolt.getBolt()).globalGrouping(previousOperator.getName());
-                    bolt.setDeclarer(declarer);
+                    // define bolt only once
+                    if (bolt.getDeclarer() == null)
+                    {
+                        BoltDeclarer declarer = builder.setBolt(((Operator) bolt.getOperator()).getName(), bolt.getBolt()).globalGrouping(previousOperator.getName());
+                        bolt.setDeclarer(declarer);
+                    }
+                    else
+                    {
+                        // operator has already been declared, so this means that its input arity is greater than one
+                        bolt.getDeclarer().globalGrouping(previousOperator.getName());
+                    }
                 }
                 else
                 {
@@ -193,6 +202,10 @@ public abstract class Graph implements Serializable
 
             private SuccessiveNumberGenerator expectingSequence;
             private MinHeap buffer;
+            private SystemMessage systemMessageBuffer;
+
+            // common generator for whole operator
+            private SuccessiveNumberGenerator sequenceNumberGenerator = null;
 
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
@@ -211,7 +224,6 @@ public abstract class Graph implements Serializable
                     if (expectingSequence == null)
                     {
                         expectingSequence = new SuccessiveNumberGenerator();
-                        // TODO: check buffer capacity
                         buffer = new MinHeap();
                     }
 
@@ -228,12 +240,18 @@ public abstract class Graph implements Serializable
                             Tuple itemToSend = buffer.poll().getV();
                             expectingSequence.increase();
 
+                            // TODO: remove consumed sequence number for sending it further
+
+                            systemMessageBuffer = message;
                             operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, itemToSend);
                         }
                     }
                 }
                 else
+                {
+                    systemMessageBuffer = message;
                     operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, item);
+                }
             }
 
             @Override
@@ -261,8 +279,6 @@ public abstract class Graph implements Serializable
                 {
                     internalConsumers[i] = new IConsumer()
                     {
-                        private SuccessiveNumberGenerator sequenceNumberGenerator;
-
                         @Override
                         public int getInputArity()
                         {
@@ -272,7 +288,11 @@ public abstract class Graph implements Serializable
                         @Override
                         public void next(int channelNumber, Object item)
                         {
-                            SystemMessage message = new SystemMessage();
+                            SystemMessage message;
+                            if (systemMessageBuffer == null)
+                                message = new SystemMessage();
+                            else
+                                message = systemMessageBuffer;
 
                             if (operator.getOutputArity() > 1)
                             {
