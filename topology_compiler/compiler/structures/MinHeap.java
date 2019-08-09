@@ -1,22 +1,18 @@
 package compiler.structures;
 
 import org.apache.storm.tuple.Tuple;
+
 import java.io.Serializable;
 
 public class MinHeap implements Serializable
 {
     private int size;
-    private int capacity;
-    private Tuple[] collection;
-    private String keyFieldName;
+    private KV<Integer, Tuple>[] collection;
 
-    public MinHeap(int capacity, String keyFieldName)
+    public MinHeap()
     {
-        this.capacity = capacity;
         this.size = 0;
-        this.collection = new Tuple[capacity];
-
-        this.keyFieldName = keyFieldName;
+        this.collection = new KV[1000];
     }
 
     private int parent(int i)
@@ -36,21 +32,26 @@ public class MinHeap implements Serializable
 
     private void swap(int i1, int i2)
     {
-        Tuple tmp = collection[i1];
+        KV tmp = collection[i1];
         collection[i1] = collection[i2];
         collection[i2] = tmp;
     }
 
-    public void insert(Tuple tuple)
+    public void insert(KV<Integer, Tuple> tuple)
     {
-        if (size == capacity)
-            throw new RuntimeException("Element cannot be added to heap because it is full.");
+        if (size == collection.length)
+        {
+            // array extension
+            KV<Integer, Tuple>[] newArray = new KV[collection.length * 5];
+            System.arraycopy(collection, 0, newArray, 0, collection.length);
+            collection = newArray;
+        }
 
         int i = size;
         collection[i] = tuple;
         size++;
 
-        while (i != 0 && collection[parent(i)].getIntegerByField(keyFieldName) > collection[i].getIntegerByField(keyFieldName))
+        while (i != 0 && collection[parent(i)].getK() > collection[i].getK())
         {
             swap(i, parent(i));
             i = parent(i);
@@ -63,10 +64,10 @@ public class MinHeap implements Serializable
         int r = rightChild(i);
         int smallest = i;
 
-        if (l < size && collection[l].getIntegerByField(keyFieldName) < collection[smallest].getIntegerByField(keyFieldName))
+        if (l < size && collection[l].getK() < collection[smallest].getK())
             smallest = l;
 
-        if (r < size && collection[r].getIntegerByField(keyFieldName) < collection[smallest].getIntegerByField(keyFieldName))
+        if (r < size && collection[r].getK() < collection[smallest].getK())
             smallest = r;
 
         if (smallest != i)
@@ -76,7 +77,7 @@ public class MinHeap implements Serializable
         }
     }
 
-    public Tuple GetMinimum()
+    public KV<Integer, Tuple> poll()
     {
         if (size == 0)
             throw new RuntimeException("There are no elements in the heap to get the minimum.");
@@ -86,7 +87,7 @@ public class MinHeap implements Serializable
             return collection[0];
         }
 
-        Tuple ret = collection[0];
+        KV<Integer, Tuple> ret = collection[0];
         collection[0] = collection[size - 1];
         size--;
 
@@ -95,7 +96,7 @@ public class MinHeap implements Serializable
         return ret;
     }
 
-    public Tuple First()
+    public KV<Integer, Tuple> peek()
     {
         if (size > 0)
             return collection[0];

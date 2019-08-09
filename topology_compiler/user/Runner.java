@@ -17,7 +17,7 @@ public class Runner
 {
     public static void main(String[] args)
     {
-        parallelCompositionTest();
+        orderPreservingTest2();
     }
 
     private static void orderPreservingTest1()
@@ -45,7 +45,16 @@ public class Runner
         Operator merge = NodesFactory.merge("merger", 3);
         IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
 
+        ParallelGraph parallelGraph = new ParallelGraph(new AtomicGraph(filter1),
+                new AtomicGraph(filter2),
+                new AtomicGraph(filter3));
 
+        SerialGraph serialGraph = new SerialGraph(new AtomicGraph(multiplier), new AtomicGraph(copy), parallelGraph, new AtomicGraph(merge));
+        Operator op = serialGraph.getOperator();
+        op.subscribe(printer);
+        //serialGraph.executeLocal(source);
+
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), serialGraph.getStormTopology(source));
     }
 
     /*private static class OrderGenerator implements Serializable

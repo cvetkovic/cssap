@@ -8,6 +8,9 @@ import compiler.interfaces.basic.Source;
 import compiler.storm.StormBolt;
 import compiler.storm.SystemMessage;
 import compiler.storm.groupings.MultipleOutputGrouping;
+import compiler.structures.KV;
+import compiler.structures.MinHeap;
+import compiler.structures.SuccessiveNumberGenerator;
 import org.apache.storm.generated.Grouping;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.spout.SpoutOutputCollector;
@@ -81,6 +84,9 @@ public abstract class Graph implements Serializable
         {
             IConsumer[] successors = previousOperator.getConsumers();
 
+            ///////////////////////////////////////////////////////////////
+            //  PARALLEL COMPOSITION CONSTITUENTS EXTRACTION
+            ///////////////////////////////////////////////////////////////
             if (successors[i] instanceof Operator && ((Operator) successors[i]).getParallelConstituent() != null)
                 successors = ((Operator) successors[i]).getParallelConstituent();
 
@@ -108,6 +114,9 @@ public abstract class Graph implements Serializable
                 {
                     MultipleOutputGrouping customGrouping;
 
+                    ///////////////////////////////////////////////////////////////
+                    //  CREATING SHARED CUSTOM GROUPING CLASS
+                    ///////////////////////////////////////////////////////////////
                     if (bolt.getCustomGrouping() == null)
                     {
                         customGrouping = new MultipleOutputGrouping(((Operator) previous.getOperator()).getName());
@@ -117,7 +126,12 @@ public abstract class Graph implements Serializable
                     {
                         bolt.setCustomGrouping(customGrouping = bolt.getCustomGrouping());
                     }
+                    ///////////////////////////////////////////////////////////////
 
+
+                    ///////////////////////////////////////////////////////////////
+                    //  LINKING OPERATORS
+                    ///////////////////////////////////////////////////////////////
                     if (bolt.getDeclarer() == null)
                     {
                         BoltDeclarer declarer = builder.setBolt(((Operator) bolt.getOperator()).getName(),
@@ -177,16 +191,49 @@ public abstract class Graph implements Serializable
 
             private Integer[] taskIds;
 
+            private SuccessiveNumberGenerator expectingSequence;
+            private MinHeap buffer;
+
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 this.collector = collector;
 
                 Object item = input.getValueByField("data");
-                SystemMessage message = (SystemMessage)input.getValueByField("message");
+                SystemMessage message = (SystemMessage) input.getValueByField("message");
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
 
-                operator.getOperator().next(((SystemMessage.InputChannelSpecification)payload).inputChannel, item);
+                ///////////////////////////////////////////////////////////////
+                //  ORDER SHOULD BE PRESERVED IF TRUE
+                ///////////////////////////////////////////////////////////////
+                if (operator.getInputArity() > 1)
+                {
+                    if (expectingSequence == null)
+                    {
+                        expectingSequence = new SuccessiveNumberGenerator();
+                        // TODO: check buffer capacity
+                        buffer = new MinHeap();
+                    }
+
+                    SystemMessage.SequenceNumber sequenceNumber = (SystemMessage.SequenceNumber) message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+                    buffer.insert(new KV<Integer, Tuple>(sequenceNumber.sequenceNumber, input));
+
+                    if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState())
+                    {
+                        ///////////////////////////////////////////////////////////////
+                        //  CONSUME EVERYTHING THAT IS IN BUFFER AND IS IN RIGHT ORDER
+                        ///////////////////////////////////////////////////////////////
+                        while (buffer.peek() != null && buffer.peek().getK() == expectingSequence.getCurrentState())
+                        {
+                            Tuple itemToSend = buffer.poll().getV();
+                            expectingSequence.increase();
+
+                            operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, itemToSend);
+                        }
+                    }
+                }
+                else
+                    operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, item);
             }
 
             @Override
@@ -214,6 +261,8 @@ public abstract class Graph implements Serializable
                 {
                     internalConsumers[i] = new IConsumer()
                     {
+                        private SuccessiveNumberGenerator sequenceNumberGenerator;
+
                         @Override
                         public int getInputArity()
                         {
@@ -224,12 +273,27 @@ public abstract class Graph implements Serializable
                         public void next(int channelNumber, Object item)
                         {
                             SystemMessage message = new SystemMessage();
+
                             if (operator.getOutputArity() > 1)
                             {
+                                ///////////////////////////////////////////////////////////////
+                                //  MEANT FOR
+                                ///////////////////////////////////////////////////////////////
                                 int taskGoingTo = taskIds[channelNumber];
-                                message = new SystemMessage();
                                 message.addPayload(new SystemMessage.MeantFor(operator.getOperator().getName(), taskGoingTo));
+
+                                ///////////////////////////////////////////////////////////////
+                                //  SEQUENCE NUMBERS
+                                ///////////////////////////////////////////////////////////////
+                                if (sequenceNumberGenerator == null)
+                                    sequenceNumberGenerator = new SuccessiveNumberGenerator();
+
+                                // TODO: this is where subsequences should be added
+                                message.addPayload(new SystemMessage.SequenceNumber(sequenceNumberGenerator.next()));
                             }
+                            ///////////////////////////////////////////////////////////////
+                            //  INPUT CHANNEL ROUTING
+                            ///////////////////////////////////////////////////////////////
                             message.addPayload(new SystemMessage.InputChannelSpecification(channelNumber));
 
                             collector.emit(new Values(item, message));
@@ -250,10 +314,10 @@ public abstract class Graph implements Serializable
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 Object item = input.getValueByField("data");
-                SystemMessage message = (SystemMessage)input.getValueByField("message");
+                SystemMessage message = (SystemMessage) input.getValueByField("message");
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
 
-                sink.next(((SystemMessage.InputChannelSpecification)payload).inputChannel, item);
+                sink.next(((SystemMessage.InputChannelSpecification) payload).inputChannel, item);
             }
 
             @Override
