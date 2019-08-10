@@ -234,14 +234,18 @@ public abstract class Graph implements Serializable
                         buffer = new MinHeap();
                     }
 
-                    SystemMessage.SequenceNumber sequenceNumber = (SystemMessage.SequenceNumber) message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+                    SystemMessage.SequenceNumber sequenceNumber = ((SystemMessage.SequenceNumber) message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).getSequenceNumberLeaf();
                     buffer.insert(new KV<Integer, Tuple>(sequenceNumber.sequenceNumber, input));
 
-                    if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState())
+                    if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState() &&
+                        message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
                     {
                         ///////////////////////////////////////////////////////////////
                         //  CONSUME EVERYTHING THAT IS IN BUFFER AND IS IN RIGHT ORDER
                         ///////////////////////////////////////////////////////////////
+                        message.deletePayloadFromMessage(SystemMessage.MessageTypes.END_OF_OUTPUT);
+                        int lastSentToChannel = -1;
+
                         while (buffer.peek() != null && buffer.peek().getK() == expectingSequence.getCurrentState())
                         {
                             Tuple itemToSend = buffer.poll().getV();
@@ -249,8 +253,12 @@ public abstract class Graph implements Serializable
 
                             // TODO: remove consumed sequence number for sending it further
 
+                            int inputChannel = ((SystemMessage.InputChannelSpecification) payload).inputChannel;
+                            if (inputChannel != lastSentToChannel && lastSentToChannel != -1)
+                                message.addPayload(new SystemMessage.EndOfOutput());
                             systemMessageBuffer = message;
-                            operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, itemToSend);
+                            operator.getOperator().next(inputChannel, itemToSend);
+                            lastSentToChannel = inputChannel;
                         }
                     }
                 }
@@ -258,6 +266,7 @@ public abstract class Graph implements Serializable
                 {
                     systemMessageBuffer = message;
                     operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, item);
+                    message.addPayload(new SystemMessage.EndOfOutput());
                 }
             }
 
@@ -319,7 +328,7 @@ public abstract class Graph implements Serializable
                                 if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null)
                                     message.addPayload(newSn);
                                 else
-                                    ((SystemMessage.SequenceNumber)message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).getSequenceNumberLeaf().assignSubsequence(newSn);
+                                    ((SystemMessage.SequenceNumber) message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).getSequenceNumberLeaf().assignSubsequence(newSn);
                             }
                             ///////////////////////////////////////////////////////////////
                             //  INPUT CHANNEL ROUTING

@@ -10,7 +10,8 @@ public class SystemMessage implements Serializable
     {
         MEANT_FOR(0),
         INPUT_CHANNEL(1),
-        SEQUENCE_NUMBER(2);
+        SEQUENCE_NUMBER(2),
+        END_OF_OUTPUT(3);
         // WHEN ADDING NEW MESSAGE TYPES CHANGE RETURNED VALUE IN count() METHOD
 
         private final int i;
@@ -22,7 +23,7 @@ public class SystemMessage implements Serializable
 
         private static int count()
         {
-            return 3;
+            return 4;
         }
     }
 
@@ -82,6 +83,11 @@ public class SystemMessage implements Serializable
         {
             this.subsequenceNumber = sequenceNumber;
         }
+    }
+
+    public static class EndOfOutput extends Payload
+    {
+
     }
 
     public void addPayload(Payload p)
