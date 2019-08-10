@@ -69,6 +69,19 @@ public class SystemMessage implements Serializable
             this.sequenceNumber = sequenceNumber;
             this.subsequenceNumber = subsequenceNumber;
         }
+
+        public SequenceNumber getSequenceNumberLeaf()
+        {
+            if (this.subsequenceNumber == null)
+                return this;
+            else
+                return subsequenceNumber.getSequenceNumberLeaf();
+        }
+
+        public void assignSubsequence(SequenceNumber sequenceNumber)
+        {
+            this.subsequenceNumber = sequenceNumber;
+        }
     }
 
     public void addPayload(Payload p)

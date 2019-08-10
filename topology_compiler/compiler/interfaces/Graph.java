@@ -174,13 +174,20 @@ public abstract class Graph implements Serializable
                 this.collector = collector;
             }
 
+            private int i = 0;
+
             @Override
             public void nextTuple()
             {
                 SystemMessage message = new SystemMessage();
                 message.addPayload(new SystemMessage.InputChannelSpecification(0));
 
-                collector.emit(new Values(source.next(), message));
+                // TODO: remove counter <<i>> on deploy (DEBUG only)
+                if (i++ == 10)
+                {
+                    collector.emit(new Values(source.next(), message));
+                    i = 0;
+                }
             }
 
             @Override
@@ -308,8 +315,11 @@ public abstract class Graph implements Serializable
                                 if (sequenceNumberGenerator == null)
                                     sequenceNumberGenerator = new SuccessiveNumberGenerator();
 
-                                // TODO: this is where subsequences should be added
-                                message.addPayload(new SystemMessage.SequenceNumber(sequenceNumberGenerator.next()));
+                                SystemMessage.SequenceNumber newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.next());
+                                if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null)
+                                    message.addPayload(newSn);
+                                else
+                                    ((SystemMessage.SequenceNumber)message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).getSequenceNumberLeaf().assignSubsequence(newSn);
                             }
                             ///////////////////////////////////////////////////////////////
                             //  INPUT CHANNEL ROUTING

@@ -20,19 +20,9 @@ public class Runner
         orderPreservingTest2();
     }
 
-    private static void orderPreservingTest1()
-    {
-        Random r = new Random();
-        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
-        Operator copy = NodesFactory.copy("copy", 2);
-        Operator buffer = NodesFactory.buffer("buffer");
-        Operator duplicate = NodesFactory.duplicate("duplicate");
-        Operator merge = NodesFactory.merge("merge", 2);
-        IConsumer consumer = NodesFactory.sink("printer", (item) -> System.out.println(item));
-
-
-    }
-
+    /*
+    Test where only one of the three operators will emit an output although the input tuple was sent to all three
+     */
     private static void orderPreservingTest2()
     {
         Random r = new Random();
@@ -57,28 +47,36 @@ public class Runner
         new LocalCluster().submitTopology("topologyCompiler", new Config(), serialGraph.getStormTopology(source));
     }
 
-    /*private static class OrderGenerator implements Serializable
+    /*
+    Test that has three lines after copy. First line never returns an output. Second returns one tuple as an output. Third returns two.
+    Those operators then go to merger that has to take care about the order in which items are received. Test for end of stream signal
+    and for checking whether received items by printer are in the right order.
+     */
+    private static void orderPreservingEndOfStreamTest()
     {
-        private int sequence = 1;
+        Random r = new Random();
 
-        public int next()
-        {
-            return sequence++;
-        }
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        Operator copy = NodesFactory.copy("copy", 3);
+        Operator r0 = NodesFactory.filter("f0", (Double item) -> item < -1);   // will always return false
+        Operator r1 = NodesFactory.buffer("buffer");
+        Operator r2 = NodesFactory.duplicate("duplicator");
+        Operator merge = NodesFactory.merge("merge", 3);
+        IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+
+        ParallelGraph parallelGraph = new ParallelGraph(new AtomicGraph(r0),
+                new AtomicGraph(r1),
+                new AtomicGraph(r2));
+        SerialGraph pipeline = new SerialGraph(new AtomicGraph(copy), parallelGraph, new AtomicGraph(merge));
+        pipeline.getOperator().subscribe(printer);
+        //serialGraph.executeLocal(source);
+
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), pipeline.getStormTopology(source));
     }
 
-    private static void orderPreservingTest3()
-    {
-        OrderGenerator og = new OrderGenerator();
-        InfiniteSource source = new InfiniteSource(() -> og.next());
-
-
-        Operator merge = NodesFactory.merge("merge", 2);
-        IConsumer consumer = NodesFactory.sink("printer", (item) -> System.out.println(item));
-
-
-    }*/
-
+    /*
+    Test to prove that parallel composition subscription is done right and next method works
+     */
     private static void parallelCompositionTest()
     {
         Random r = new Random();
@@ -98,6 +96,33 @@ public class Runner
         //graph.executeLocal(source);
 
         new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
+    }
+
+    private static void orderPreservingMultipleBranch()
+    {
+        Random r = new Random();
+
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        Operator copyOuter = NodesFactory.copy("copyOuter", 3);
+
+        Operator innerCopy = NodesFactory.copy("innerCopy", 2);
+        Operator innerFilter1 = NodesFactory.filter("innerFilter1", (Double item) -> item < 0.5);
+        Operator innerFilter2 = NodesFactory.filter("innerFilter2", (Double item) -> item >= 0.5);
+        Operator innerMerge = NodesFactory.merge("innerMerge", 2);
+
+        ParallelGraph innerParallel = new ParallelGraph(new AtomicGraph(innerFilter1), new AtomicGraph(innerFilter2));
+        SerialGraph innerBranch = new SerialGraph(new AtomicGraph(innerCopy), innerParallel, new AtomicGraph(innerMerge));
+
+        Operator r2 = NodesFactory.duplicate("duplicator");
+        Operator merge = NodesFactory.merge("merge", 3);
+        IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+
+        ParallelGraph parallelGraph = new ParallelGraph(innerBranch, new AtomicGraph(r2));
+        SerialGraph pipeline = new SerialGraph(new AtomicGraph(copyOuter), parallelGraph, new AtomicGraph(merge));
+        pipeline.getOperator().subscribe(printer);
+        //serialGraph.executeLocal(source);
+
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), pipeline.getStormTopology(source));
     }
 
     ///////////////////////////////////////////////////////////////////
