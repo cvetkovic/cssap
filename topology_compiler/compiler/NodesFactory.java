@@ -1,7 +1,7 @@
 package compiler;
 
-import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
+import compiler.interfaces.basic.Sink;
 import compiler.interfaces.lambda.Endpoint;
 import compiler.interfaces.lambda.Function1;
 import compiler.interfaces.lambda.Function2;
@@ -99,16 +99,10 @@ public class NodesFactory
         };
     }
 
-    public static <A> IConsumer<A> sink(String name, Endpoint<A> code)
+    public static <A> Sink<A> sink(String name, Endpoint<A> code)
     {
-        return new IConsumer<A>()
+        return new Sink<A>(name)
         {
-            @Override
-            public int getInputArity()
-            {
-                return 1;
-            }
-
             @Override
             public void next(int channelNumber, A item)
             {

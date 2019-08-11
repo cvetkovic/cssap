@@ -4,6 +4,7 @@ import compiler.AtomicGraph;
 import compiler.SerialGraph;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
+import compiler.interfaces.basic.Sink;
 import compiler.interfaces.basic.Source;
 import compiler.storm.StormBolt;
 import compiler.storm.SystemMessage;
@@ -46,20 +47,33 @@ public abstract class Graph implements Serializable
         return name;
     }
 
+    /**
+     * Method to run the topology on a single JVM thread
+     *
+     * @param source A source that feeds the topology with data
+     */
     public void executeLocal(Source source)
     {
         while (source.hasNext())
             getOperator().next(0, source.next());
     }
 
-
+    /**
+     * Method to compile the graph into a Storm-runnable topology
+     *
+     * @param source A source that feeds the topology with data
+     * @return Compiled Storm topology
+     */
     public StormTopology getStormTopology(Source source)
     {
+        // used for faster access while compiling
         Map<IConsumer, StormBolt> cache = new HashMap<>();
         TopologyBuilder builder = new TopologyBuilder();
+        // compiling source into spount
         BaseRichSpout spout = generateSpout(source);
         builder.setSpout("source", spout);
 
+        // getting reference to a first operator in the graph
         Operator operator;
         if (this instanceof AtomicGraph)
             operator = getOperator();
@@ -68,11 +82,13 @@ public abstract class Graph implements Serializable
         else
             throw new RuntimeException("Parallel graph not allowed on the beginning of the topology, because that implies that the topology would have multiple sources, which is not allowed.");
 
+        // compiling first node of a graph
         BaseBasicBolt generated = generateOperator(new AtomicGraph(operator));
         BoltDeclarer declarer = builder.setBolt(operator.getName(), generated).globalGrouping("source");
         StormBolt previous = new StormBolt(operator, generated, declarer);
         cache.put(operator, previous);
 
+        // invocation of recursive compilation
         linkOperators(cache, builder, previous, operator);
 
         return builder.createTopology();
@@ -137,7 +153,6 @@ public abstract class Graph implements Serializable
                     }
                     ///////////////////////////////////////////////////////////////
 
-
                     ///////////////////////////////////////////////////////////////
                     //  LINKING OPERATORS
                     ///////////////////////////////////////////////////////////////
@@ -149,19 +164,46 @@ public abstract class Graph implements Serializable
                     }
                     else
                         bolt.getDeclarer().customGrouping(((Operator) previous.getOperator()).getName(), customGrouping);
+                    ///////////////////////////////////////////////////////////////
                 }
 
+                /* TODO: BUG HERE -> DO NOT CREATE CONNECTION BETWEEN NODES IF IT HAS ALREADY BEEN CREATED BY
+                         OTHER TRAVERSAL
+                 */
                 linkOperators(cache, builder, bolt, ((Operator) bolt.getOperator()));
             }
-            else if (previousOperator.getConsumers()[i] instanceof IConsumer)
+            else if (previousOperator.getConsumers()[i] instanceof Sink)
             {
-                BaseBasicBolt generated = generateSink(previousOperator.getConsumers()[i]);
-                builder.setBolt("sink" + Integer.toString(uniqueId++), generated).globalGrouping(previousOperator.getName());
+                StormBolt bolt;
+
+                if (cache.get(previousOperator.getConsumers()[i]) == null)
+                {
+                    bolt = new StormBolt(previousOperator.getConsumers()[i],
+                            generateSink(previousOperator.getConsumers()[i]),
+                            null);
+
+                    cache.put(previousOperator.getConsumers()[i], bolt);
+                }
+                else
+                    bolt = cache.get(previousOperator.getConsumers()[i]);
+
+                if (bolt.getDeclarer() == null)
+                {
+                    BoltDeclarer declarer = builder.setBolt(((Sink) previousOperator.getConsumers()[i]).getName(), bolt.getBolt())
+                            .globalGrouping(previousOperator.getName());
+                    bolt.setDeclarer(declarer);
+                }
+                else
+                    bolt.getDeclarer().globalGrouping(previousOperator.getName());
             }
         }
-
     }
 
+    /**
+     * Turns internal Source into a Storm spout
+     * @param source Internal compiler source
+     * @return Storm spout
+     */
     public BaseRichSpout generateSpout(Source source)
     {
         return new BaseRichSpout()
@@ -174,20 +216,14 @@ public abstract class Graph implements Serializable
                 this.collector = collector;
             }
 
-            private int i = 0;
-
             @Override
             public void nextTuple()
             {
+                // all the inputs go to channel zero(0)
                 SystemMessage message = new SystemMessage();
                 message.addPayload(new SystemMessage.InputChannelSpecification(0));
 
-                // TODO: remove counter <<i>> on deploy (DEBUG only)
-                if (i++ == 10)
-                {
-                    collector.emit(new Values(source.next(), message));
-                    i = 0;
-                }
+                collector.emit(new Values(source.next(), message));
             }
 
             @Override
@@ -198,15 +234,25 @@ public abstract class Graph implements Serializable
         };
     }
 
+    /**
+     * Compiles internal atomic graph operator into a Storm bolt
+     * @param operator Atomic graph
+     * @return Storm bolt
+     */
     private BaseBasicBolt generateOperator(AtomicGraph operator)
     {
         return new BaseBasicBolt()
         {
             private BasicOutputCollector collector;
+            /* each output channel has its own consumer so that we can make distinction
+               from which channel the item was sent
+             */
             private IConsumer[] internalConsumers;
 
+            // Storm task IDs of nodes to which operator outputs
             private Integer[] taskIds;
 
+            // order preserving structures
             private SuccessiveNumberGenerator expectingSequence;
             private MinHeap buffer;
             private SystemMessage systemMessageBuffer;
@@ -238,7 +284,7 @@ public abstract class Graph implements Serializable
                     buffer.insert(new KV<Integer, Tuple>(sequenceNumber.sequenceNumber, input));
 
                     if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState() &&
-                        message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
+                            message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
                     {
                         ///////////////////////////////////////////////////////////////
                         //  CONSUME EVERYTHING THAT IS IN BUFFER AND IS IN RIGHT ORDER
@@ -324,7 +370,12 @@ public abstract class Graph implements Serializable
                                 if (sequenceNumberGenerator == null)
                                     sequenceNumberGenerator = new SuccessiveNumberGenerator();
 
-                                SystemMessage.SequenceNumber newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.next());
+                                SystemMessage.SequenceNumber newSn;
+                                if (this == internalConsumers[internalConsumers.length - 1]) // equivalent to i == length - 1
+                                    newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.next());
+                                else
+                                    newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.getCurrentState());
+
                                 if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null)
                                     message.addPayload(newSn);
                                 else
@@ -335,7 +386,13 @@ public abstract class Graph implements Serializable
                             ///////////////////////////////////////////////////////////////
                             message.addPayload(new SystemMessage.InputChannelSpecification(channelNumber));
 
-                            collector.emit(new Values(item, message));
+                            if (item instanceof Tuple)
+                            {
+                                Tuple t = (Tuple) item;
+                                collector.emit(new Values(t.getValueByField("data"), t.getValueByField("message")));
+                            }
+                            else
+                                collector.emit(new Values(item, message));
                         }
                     };
                 }

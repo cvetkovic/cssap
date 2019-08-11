@@ -6,8 +6,8 @@ import compiler.ParallelGraph;
 import compiler.SerialGraph;
 import compiler.interfaces.Graph;
 import compiler.interfaces.InfiniteSource;
-import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
+import compiler.interfaces.basic.Sink;
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
 
@@ -26,6 +26,7 @@ public class Runner
     private static void orderPreservingTest2()
     {
         Random r = new Random();
+
         InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
         Operator multiplier = NodesFactory.map("multiplier", (Double item) -> item * 3);
         Operator copy = NodesFactory.copy("copy", 3);
@@ -33,7 +34,7 @@ public class Runner
         Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 1 && item < 2);
         Operator filter3 = NodesFactory.filter("filter3", (Double item) -> item >= 2 && item < 3);
         Operator merge = NodesFactory.merge("merger", 3);
-        IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+        Sink printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
 
         ParallelGraph parallelGraph = new ParallelGraph(new AtomicGraph(filter1),
                 new AtomicGraph(filter2),
@@ -62,7 +63,7 @@ public class Runner
         Operator r1 = NodesFactory.buffer("buffer");
         Operator r2 = NodesFactory.duplicate("duplicator");
         Operator merge = NodesFactory.merge("merge", 3);
-        IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+        Sink printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
 
         ParallelGraph parallelGraph = new ParallelGraph(new AtomicGraph(r0),
                 new AtomicGraph(r1),
@@ -72,30 +73,6 @@ public class Runner
         //serialGraph.executeLocal(source);
 
         new LocalCluster().submitTopology("topologyCompiler", new Config(), pipeline.getStormTopology(source));
-    }
-
-    /*
-    Test to prove that parallel composition subscription is done right and next method works
-     */
-    private static void parallelCompositionTest()
-    {
-        Random r = new Random();
-        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
-        Operator copy = NodesFactory.copy("copy", 2);
-
-        Operator filter1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
-        Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);
-
-        IConsumer sink1 = NodesFactory.sink("sink1", (item) -> System.out.println("Printer1: " + item));
-        IConsumer sink2 = NodesFactory.sink("sink2", (item) -> System.out.println("Printer2:                 " + item));
-
-        Graph parallel = new ParallelGraph(new AtomicGraph(filter1), new AtomicGraph(filter2));
-        Graph graph = new SerialGraph(new AtomicGraph(copy), parallel);
-        Operator op = graph.getOperator();
-        op.subscribe(sink1, sink2);
-        //graph.executeLocal(source);
-
-        new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
     }
 
     private static void orderPreservingMultipleBranch()
@@ -115,7 +92,7 @@ public class Runner
 
         Operator r2 = NodesFactory.duplicate("duplicator");
         Operator merge = NodesFactory.merge("merge", 3);
-        IConsumer printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+        Sink printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
 
         ParallelGraph parallelGraph = new ParallelGraph(innerBranch, new AtomicGraph(r2));
         SerialGraph pipeline = new SerialGraph(new AtomicGraph(copyOuter), parallelGraph, new AtomicGraph(merge));
@@ -125,13 +102,33 @@ public class Runner
         new LocalCluster().submitTopology("topologyCompiler", new Config(), pipeline.getStormTopology(source));
     }
 
+    /*
+    Test to prove that parallel composition subscription is done right and next method works
+     */
+    private static void parallelCompositionTest()
+    {
+        Random r = new Random();
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        Operator copy = NodesFactory.copy("copy", 2);
+
+        Operator filter1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
+        Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);
+
+        Sink sink1 = NodesFactory.sink("sink1", (item) -> System.out.println("Printer1: " + item));
+        Sink sink2 = NodesFactory.sink("sink2", (item) -> System.out.println("Printer2:                 " + item));
+
+        Graph parallel = new ParallelGraph(new AtomicGraph(filter1), new AtomicGraph(filter2));
+        Graph graph = new SerialGraph(new AtomicGraph(copy), parallel);
+        Operator op = graph.getOperator();
+        op.subscribe(sink1, sink2);
+        //graph.executeLocal(source);
+
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), graph.getStormTopology(source));
+    }
+
     ///////////////////////////////////////////////////////////////////
     ///////////////////// OLD TESTS
     ///////////////////////////////////////////////////////////////////
-
-
-
-
 
     /*private static void composeTest1()
     {

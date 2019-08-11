@@ -7,6 +7,7 @@ import org.apache.storm.topology.base.BaseBasicBolt;
 
 import java.io.Serializable;
 
+/* Auxiliary class to help when compiling the topology to Apache Storm */
 public class StormBolt implements Serializable
 {
     private IConsumer operator;

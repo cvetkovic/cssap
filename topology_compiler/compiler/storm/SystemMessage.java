@@ -98,6 +98,8 @@ public class SystemMessage implements Serializable
             payloads.put(MessageTypes.INPUT_CHANNEL, p);
         else if (p instanceof SequenceNumber)
             payloads.put(MessageTypes.SEQUENCE_NUMBER, p);
+        else if (p instanceof EndOfOutput)
+            payloads.put(MessageTypes.END_OF_OUTPUT, p);
         else
             throw new RuntimeException("Not supported type of payload.");
     }
