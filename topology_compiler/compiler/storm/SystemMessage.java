@@ -114,7 +114,10 @@ public class SystemMessage implements Serializable, Cloneable
         @Override
         public Object clone()
         {
-            return new SequenceNumber(sequenceNumber, (SequenceNumber)subsequenceNumber.clone());
+            if (this.subsequenceNumber == null)
+                return new SequenceNumber(sequenceNumber, null);
+            else
+                return new SequenceNumber(sequenceNumber, (SequenceNumber) subsequenceNumber.clone());
         }
     }
 
@@ -159,16 +162,15 @@ public class SystemMessage implements Serializable, Cloneable
                 root.getParentOfLeaf().subsequenceNumber = null;
         }
         else*/
-            payloads.remove(type);
+        payloads.remove(type);
     }
 
     @Override
     public Object clone()
     {
         SystemMessage msg = new SystemMessage();
-        Map<MessageTypes, Payload> clone = new HashMap<>(MessageTypes.count());
         for (Map.Entry<MessageTypes, Payload> entry : payloads.entrySet())
-            msg.addPayload((Payload)((Payload)entry.getValue()).clone());
+            msg.addPayload((Payload) (entry.getValue()).clone());
 
         return msg;
     }

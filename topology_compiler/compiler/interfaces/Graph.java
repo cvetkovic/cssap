@@ -54,8 +54,9 @@ public abstract class Graph implements Serializable
      */
     public void executeLocal(Source source)
     {
+        // TODO: try with null system message
         while (source.hasNext())
-            getOperator().next(0, source.next());
+            getOperator().next(0, new KV(source.next(), new SystemMessage()));
     }
 
     /**
@@ -270,6 +271,10 @@ public abstract class Graph implements Serializable
                 SystemMessage message = (SystemMessage) input.getValueByField("message");
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
 
+                // removing unnecessary payload
+                if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
+                    message.deletePayloadFromMessage(SystemMessage.MessageTypes.MEANT_FOR);
+
                 ///////////////////////////////////////////////////////////////
                 //  ORDER SHOULD BE PRESERVED IF TRUE
                 ///////////////////////////////////////////////////////////////
@@ -316,8 +321,8 @@ public abstract class Graph implements Serializable
                 {
                     // do not add end of output if sequence numbers are not introduced
                     // NOTE: THIS HAS TO GO BEFORE operator.next(...)
-                    if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
-                        message.addPayload(new SystemMessage.EndOfOutput());
+                    //if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
+                    //    message.addPayload(new SystemMessage.EndOfOutput());
 
                     operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
                 }
@@ -357,8 +362,8 @@ public abstract class Graph implements Serializable
                         @Override
                         public void next(int channelNumber, Object item)
                         {
-                            SystemMessage message = ((KV<Object, SystemMessage>)item).getV();
-                            item = ((KV<Object, SystemMessage>)item).getK();
+                            SystemMessage message = ((KV<Object, SystemMessage>) item).getV();
+                            item = ((KV<Object, SystemMessage>) item).getK();
 
                             if (operator.getOutputArity() > 1)
                             {
@@ -374,11 +379,9 @@ public abstract class Graph implements Serializable
                                 if (sequenceNumberGenerator == null)
                                     sequenceNumberGenerator = new SuccessiveNumberGenerator();
 
-                                SystemMessage.SequenceNumber newSn;
+                                SystemMessage.SequenceNumber newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.getCurrentState());
                                 if (this == internalConsumers[internalConsumers.length - 1]) // equivalent to i == length - 1
-                                    newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.next());
-                                else
-                                    newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.getCurrentState());
+                                    sequenceNumberGenerator.next();
 
                                 if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null)
                                     message.addPayload(newSn);
@@ -390,13 +393,7 @@ public abstract class Graph implements Serializable
                             ///////////////////////////////////////////////////////////////
                             message.addPayload(new SystemMessage.InputChannelSpecification(channelNumber));
 
-                            if (item instanceof Tuple)
-                            {
-                                Tuple t = (Tuple) item;
-                                collector.emit(new Values(t.getValueByField("data"), t.getValueByField("message")));
-                            }
-                            else
-                                collector.emit(new Values(item, message));
+                            collector.emit(new Values(item, message));
                         }
                     };
                 }

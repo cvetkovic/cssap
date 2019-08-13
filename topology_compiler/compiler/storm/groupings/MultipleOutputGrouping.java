@@ -39,8 +39,6 @@ public class MultipleOutputGrouping implements CustomStreamGrouping
         {
             if (((SystemMessage.MeantFor)payload).operatorName.equals(operatorName))
             {
-                ((SystemMessage) values.get(1)).deletePayloadFromMessage(SystemMessage.MessageTypes.MEANT_FOR);
-
                 if (targetTasks.contains(((SystemMessage.MeantFor) payload).tupleMeantFor))
                     return Collections.singletonList(((SystemMessage.MeantFor) payload).tupleMeantFor);
                 else
