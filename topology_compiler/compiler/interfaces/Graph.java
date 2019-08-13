@@ -201,6 +201,7 @@ public abstract class Graph implements Serializable
 
     /**
      * Turns internal Source into a Storm spout
+     *
      * @param source Internal compiler source
      * @return Storm spout
      */
@@ -236,6 +237,7 @@ public abstract class Graph implements Serializable
 
     /**
      * Compiles internal atomic graph operator into a Storm bolt
+     *
      * @param operator Atomic graph
      * @return Storm bolt
      */
@@ -255,7 +257,6 @@ public abstract class Graph implements Serializable
             // order preserving structures
             private SuccessiveNumberGenerator expectingSequence;
             private MinHeap buffer;
-            private SystemMessage systemMessageBuffer;
 
             // common generator for whole operator
             private SuccessiveNumberGenerator sequenceNumberGenerator = null;
@@ -300,19 +301,25 @@ public abstract class Graph implements Serializable
                             // TODO: remove consumed sequence number for sending it further
 
                             int inputChannel = ((SystemMessage.InputChannelSpecification) payload).inputChannel;
-                            if (inputChannel != lastSentToChannel && lastSentToChannel != -1)
-                                message.addPayload(new SystemMessage.EndOfOutput());
-                            systemMessageBuffer = message;
-                            operator.getOperator().next(inputChannel, itemToSend);
+                            /*if (inputChannel != lastSentToChannel && lastSentToChannel != -1)
+                                message.addPayload(new SystemMessage.EndOfOutput());*/
+
+                            message.deletePayloadFromMessage(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+
+                            operator.getOperator().next(inputChannel, new KV(item, message));
+
                             lastSentToChannel = inputChannel;
                         }
                     }
                 }
                 else
                 {
-                    systemMessageBuffer = message;
-                    operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, item);
-                    message.addPayload(new SystemMessage.EndOfOutput());
+                    // do not add end of output if sequence numbers are not introduced
+                    // NOTE: THIS HAS TO GO BEFORE operator.next(...)
+                    if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
+                        message.addPayload(new SystemMessage.EndOfOutput());
+
+                    operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
                 }
             }
 
@@ -350,11 +357,8 @@ public abstract class Graph implements Serializable
                         @Override
                         public void next(int channelNumber, Object item)
                         {
-                            SystemMessage message;
-                            if (systemMessageBuffer == null)
-                                message = new SystemMessage();
-                            else
-                                message = systemMessageBuffer;
+                            SystemMessage message = ((KV<Object, SystemMessage>)item).getV();
+                            item = ((KV<Object, SystemMessage>)item).getK();
 
                             if (operator.getOutputArity() > 1)
                             {
@@ -413,7 +417,7 @@ public abstract class Graph implements Serializable
                 SystemMessage message = (SystemMessage) input.getValueByField("message");
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
 
-                sink.next(((SystemMessage.InputChannelSpecification) payload).inputChannel, item);
+                sink.next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
             }
 
             @Override

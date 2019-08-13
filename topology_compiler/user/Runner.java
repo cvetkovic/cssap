@@ -53,7 +53,7 @@ public class Runner
     Those operators then go to merger that has to take care about the order in which items are received. Test for end of stream signal
     and for checking whether received items by printer are in the right order.
      */
-    private static void orderPreservingEndOfStreamTest()
+    /*private static void orderPreservingEndOfStreamTest()
     {
         Random r = new Random();
 
@@ -73,9 +73,9 @@ public class Runner
         //serialGraph.executeLocal(source);
 
         new LocalCluster().submitTopology("topologyCompiler", new Config(), pipeline.getStormTopology(source));
-    }
+    }*/
 
-    private static void orderPreservingMultipleBranch()
+    /*private static void orderPreservingMultipleBranch()
     {
         Random r = new Random();
 
@@ -100,7 +100,7 @@ public class Runner
         //serialGraph.executeLocal(source);
 
         new LocalCluster().submitTopology("topologyCompiler", new Config(), pipeline.getStormTopology(source));
-    }
+    }*/
 
     /*
     Test to prove that parallel composition subscription is done right and next method works

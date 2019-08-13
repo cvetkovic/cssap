@@ -4,7 +4,7 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 
-public class SystemMessage implements Serializable
+public class SystemMessage implements Serializable, Cloneable
 {
     public enum MessageTypes
     {
@@ -29,8 +29,10 @@ public class SystemMessage implements Serializable
 
     private Map<MessageTypes, Payload> payloads = new HashMap<>(MessageTypes.count());
 
-    public static class Payload
+    public abstract static class Payload implements Cloneable
     {
+        @Override
+        public abstract Object clone();
     }
 
     public static class MeantFor extends Payload
@@ -40,8 +42,14 @@ public class SystemMessage implements Serializable
 
         public MeantFor(String operatorName, int tupleMeantFor)
         {
-            this.tupleMeantFor = tupleMeantFor;
             this.operatorName = operatorName;
+            this.tupleMeantFor = tupleMeantFor;
+        }
+
+        @Override
+        public Object clone()
+        {
+            return new MeantFor(operatorName, tupleMeantFor);
         }
     }
 
@@ -52,6 +60,12 @@ public class SystemMessage implements Serializable
         public InputChannelSpecification(int inputChannel)
         {
             this.inputChannel = inputChannel;
+        }
+
+        @Override
+        public Object clone()
+        {
+            return new InputChannelSpecification(inputChannel);
         }
     }
 
@@ -79,15 +93,38 @@ public class SystemMessage implements Serializable
                 return subsequenceNumber.getSequenceNumberLeaf();
         }
 
+        public SequenceNumber getParentOfLeaf()
+        {
+            SequenceNumber previous = null, current = this;
+            // TODO: test this
+            while (current.subsequenceNumber != null)
+            {
+                previous = current;
+                current = current.subsequenceNumber;
+            }
+
+            return previous;
+        }
+
         public void assignSubsequence(SequenceNumber sequenceNumber)
         {
             this.subsequenceNumber = sequenceNumber;
+        }
+
+        @Override
+        public Object clone()
+        {
+            return new SequenceNumber(sequenceNumber, (SequenceNumber)subsequenceNumber.clone());
         }
     }
 
     public static class EndOfOutput extends Payload
     {
-
+        @Override
+        public Object clone()
+        {
+            return new EndOfOutput();
+        }
     }
 
     public void addPayload(Payload p)
@@ -111,6 +148,28 @@ public class SystemMessage implements Serializable
 
     public void deletePayloadFromMessage(MessageTypes type)
     {
-        payloads.remove(type);
+        // TODO: add to remove leaf subsequence
+        /*if (type == MessageTypes.SEQUENCE_NUMBER)
+        {
+            // TODO: test this
+            SequenceNumber root = (SequenceNumber) payloads.get(MessageTypes.SEQUENCE_NUMBER);
+            if (root.getParentOfLeaf() == null)
+                payloads.remove(MessageTypes.SEQUENCE_NUMBER);
+            else
+                root.getParentOfLeaf().subsequenceNumber = null;
+        }
+        else*/
+            payloads.remove(type);
+    }
+
+    @Override
+    public Object clone()
+    {
+        SystemMessage msg = new SystemMessage();
+        Map<MessageTypes, Payload> clone = new HashMap<>(MessageTypes.count());
+        for (Map.Entry<MessageTypes, Payload> entry : payloads.entrySet())
+            msg.addPayload((Payload)((Payload)entry.getValue()).clone());
+
+        return msg;
     }
 }
