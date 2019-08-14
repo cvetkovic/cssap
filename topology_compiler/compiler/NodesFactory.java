@@ -41,6 +41,14 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
+                // TODO: spread this everywhere
+                // used for passing end of output messages
+                if (item.getK() == null && item.getV() != null)
+                {
+                    consumers[0].next(channelIdentifier, item);
+                    return;
+                }
+
                 if (predicate.test(item.getK()))
                     consumers[0].next(channelIdentifier, item);
             }

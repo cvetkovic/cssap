@@ -289,8 +289,8 @@ public abstract class Graph implements Serializable
                     SystemMessage.SequenceNumber sequenceNumber = ((SystemMessage.SequenceNumber) message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).getSequenceNumberLeaf();
                     buffer.insert(new KV<Integer, Tuple>(sequenceNumber.sequenceNumber, input));
 
-                    if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState() &&
-                            message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
+                    if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState()) // &&
+                    //message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
                     {
                         ///////////////////////////////////////////////////////////////
                         //  CONSUME EVERYTHING THAT IS IN BUFFER AND IS IN RIGHT ORDER
@@ -311,7 +311,7 @@ public abstract class Graph implements Serializable
 
                             message.deletePayloadFromMessage(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
 
-                            operator.getOperator().next(inputChannel, new KV(item, message));
+                            operator.getOperator().next(inputChannel, new KV(itemToSend.getValueByField("data"), itemToSend.getValueByField("message")));
 
                             lastSentToChannel = inputChannel;
                         }
@@ -319,12 +319,16 @@ public abstract class Graph implements Serializable
                 }
                 else
                 {
-                    // do not add end of output if sequence numbers are not introduced
-                    // NOTE: THIS HAS TO GO BEFORE operator.next(...)
-                    //if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
-                    //    message.addPayload(new SystemMessage.EndOfOutput());
-
                     operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
+
+                    // do not add end of output if sequence numbers are not introduced
+                    if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
+                    {
+                        SystemMessage eoo = new SystemMessage();
+                        eoo.addPayload(new SystemMessage.EndOfOutput());
+
+                        operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(null, eoo));
+                    }
                 }
             }
 
