@@ -226,9 +226,9 @@ public abstract class Graph implements Serializable
         KV<Object, String> kv = channelMapping.get(gateID);
 
         if (kv.getK() instanceof Operator)
-            return (int)((Operator)kv.getK()).getInputGates().get(kv.getV());
+            return (int) ((Operator) kv.getK()).getInputGates().get(kv.getV());
         else if (kv.getK() instanceof Sink)
-            return (int)((Sink)kv.getK()).getInputGates().get(kv.getV());
+            return (int) ((Sink) kv.getK()).getInputGates().get(kv.getV());
         else
             throw new RuntimeException("Never meant to be called with provided parameter");
     }
@@ -299,7 +299,6 @@ public abstract class Graph implements Serializable
             private MinHeap buffer;
 
             // common generator for whole operator
-            private SuccessiveNumberGenerator sequenceNumberGenerator = new SuccessiveNumberGenerator();
             private SuccessiveNumberGenerator subsequenceGenerator = new SuccessiveNumberGenerator();
 
             @Override
@@ -313,8 +312,14 @@ public abstract class Graph implements Serializable
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
 
                 // removing unnecessary payload
-                if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
+                if (message.getPayloadByType(SystemMessage.MessageTypes.MEANT_FOR) != null)
                     message.deletePayloadFromMessage(SystemMessage.MessageTypes.MEANT_FOR);
+
+                if (item == null && operator.getInputArity() <= 1)
+                    return;         // EOO won't be used
+
+                if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null && operator.getInputArity() <= 1)
+                    message.deletePayloadFromMessage(SystemMessage.MessageTypes.END_OF_OUTPUT);
 
                 ///////////////////////////////////////////////////////////////
                 //  ORDER SHOULD BE PRESERVED IF TRUE
@@ -347,7 +352,8 @@ public abstract class Graph implements Serializable
 
                             int inputChannel = ((SystemMessage.InputChannelSpecification) payload).inputChannel;
                             /*if (inputChannel != lastSentToChannel && lastSentToChannel != -1)
-                                message.addPayload(new SystemMessage.EndOfOutput());*//*
+                                message.addPayload(new SystemMessage.EndOfOutput());*/
+                    /*
 
                             message.deletePayloadFromMessage(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
 
@@ -362,7 +368,8 @@ public abstract class Graph implements Serializable
                     operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
 
                     // here end of output must be sent
-                    SystemMessage eoo = new SystemMessage();
+                    SystemMessage eoo = (SystemMessage)message.clone();
+                    ((SystemMessage.SequenceNumber)eoo.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).removeLeafSubsequence();
                     eoo.addPayload(new SystemMessage.EndOfOutput());
                     operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(null, eoo));
                 }
@@ -420,9 +427,11 @@ public abstract class Graph implements Serializable
                                 // grouping will decide what messages it will drop
                                 ///////////////////////////////////////////////////////////////
                                 SystemMessage.SequenceNumber sn = new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState());
+                                subsequenceGenerator.next();
+                                /*
                                 // do not increment sequence number if EOO is present
                                 if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) == null)
-                                    subsequenceGenerator.next();
+                                    subsequenceGenerator.next();*/
                                 message.addPayload(sn);
                             }
                             else
@@ -430,8 +439,8 @@ public abstract class Graph implements Serializable
                                 ///////////////////////////////////////////////////////////////
                                 //  SEQUENCE NUMBERS
                                 ///////////////////////////////////////////////////////////////
-                                message.addPayload(new SystemMessage.SequenceNumber(sequenceNumberGenerator.getCurrentState()));
-                                sequenceNumberGenerator.next();
+                                message.addPayload(new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState()));
+                                subsequenceGenerator.next();
                             }
                             ///////////////////////////////////////////////////////////////
                             //  INPUT CHANNEL ROUTING

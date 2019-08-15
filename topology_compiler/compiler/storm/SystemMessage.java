@@ -1,7 +1,5 @@
 package compiler.storm;
 
-import compiler.structures.KV;
-
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -118,34 +116,60 @@ public class SystemMessage implements Serializable, Cloneable
                 return new SequenceNumber(sequenceNumber, (SequenceNumber) subsequenceNumber.clone());
         }
 
-        private static KV<Integer, SequenceNumber> getLeaf(SequenceNumber sn)
+        @Override
+        public int compareTo(SequenceNumber o)
         {
-            KV<Integer, SequenceNumber> kv;
-            int i = 0;
+            SequenceNumber left = this;
+            SequenceNumber right = o;
 
-            SequenceNumber prev = null, curr = sn;
-            while (curr != null)
+            while (left != null && right != null)
             {
-                i++;
+                if (left.sequenceNumber < right.sequenceNumber)
+                    return -1;
+                else if (left.sequenceNumber == right.sequenceNumber)
+                {
+                    left = left.subsequenceNumber;
+                    right = right.subsequenceNumber;
+                }
+                else
+                    return 1;
+            }
+
+            if (left == null)
+                return -1;
+            else if (right == null)
+                return 1;
+            else
+                return 0;
+        }
+
+        @Override
+        public String toString()
+        {
+            StringBuilder sb = new StringBuilder();
+            SequenceNumber sn = this;
+            while (sn != null)
+            {
+                sb.append(sn.sequenceNumber);
+                sb.append(".");
+                sn = sn.subsequenceNumber;
+            }
+
+            return sb.toString().substring(0, sb.length() - 1); // remove last .
+        }
+
+        public void removeLeafSubsequence()
+        {
+            // TODO: BUG HERE
+            SequenceNumber prev = null, curr = this;
+            while (curr.subsequenceNumber != null)
+            {
                 prev = curr;
                 curr = curr.subsequenceNumber;
             }
 
-            return new KV(i, prev);
-        }
-
-        @Override
-        public int compareTo(SequenceNumber o)
-        {
-            KV<Integer, SequenceNumber> thisSeq = getLeaf(this);
-            KV<Integer, SequenceNumber> paramSeq = getLeaf(o);
-
-            if (thisSeq.getK() < paramSeq.getK())
-                return -1;
-            else if (thisSeq.getK() == paramSeq.getK())
-                return Integer.compare(thisSeq.getV().sequenceNumber, paramSeq.getV().sequenceNumber);
-            else
-                return 1;
+            if (prev != null)
+                prev.subsequenceNumber = null;
         }
     }
 
@@ -179,8 +203,8 @@ public class SystemMessage implements Serializable, Cloneable
                 payloads.put(MessageTypes.SEQUENCE_NUMBER, p);
             else
             {
-                SequenceNumber root = (SequenceNumber)payloads.get(MessageTypes.SEQUENCE_NUMBER);
-                root.getSequenceNumberLeaf().subsequenceNumber = (SequenceNumber)p;
+                SequenceNumber root = (SequenceNumber) payloads.get(MessageTypes.SEQUENCE_NUMBER);
+                root.getSequenceNumberLeaf().subsequenceNumber = (SequenceNumber) p;
             }
         }
         else if (p instanceof EndOfOutput)

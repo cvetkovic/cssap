@@ -94,7 +94,7 @@ public class NodesFactory
                 if (item.getK() == null && item.getV() != null)
                 {
                     for (int i = 0; i < consumers.length; i++)
-                        consumers[i].next(channelIdentifier, new KV(null, item.getV()));
+                        consumers[i].next(i, new KV(null, item.getV().clone()));
                     return;
                 }
 
@@ -117,7 +117,7 @@ public class NodesFactory
                 if (item.getK() == null && item.getV() != null)
                 {
                     for (int i = 0; i < consumers.length; i++)
-                        consumers[i].next(channelIdentifier, new KV(null, item.getV()));
+                        consumers[i].next(i, new KV(null, item.getV()));
                     return;
                 }
 
