@@ -1,8 +1,12 @@
 package compiler.interfaces.basic;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public abstract class Sink<T> implements IConsumer<T>
 {
     private String name;
+    private Map<String, Integer> inputGates = new HashMap<>();
 
     public Sink(String name)
     {
@@ -21,5 +25,9 @@ public abstract class Sink<T> implements IConsumer<T>
     public String getName()
     {
         return name;
+    }
+    public Map<String, Integer> getInputGates()
+    {
+        return inputGates;
     }
 }

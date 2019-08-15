@@ -14,6 +14,7 @@ public class StormBolt implements Serializable
     private BaseBasicBolt bolt;
     private BoltDeclarer declarer;
     private MultipleOutputGrouping customGrouping;
+    public int inputGateCount = 0;
 
     public StormBolt(IConsumer operator, BaseBasicBolt bolt, BoltDeclarer declarer)
     {

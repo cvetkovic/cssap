@@ -1,5 +1,7 @@
 package compiler.storm;
 
+import compiler.structures.KV;
+
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -11,7 +13,8 @@ public class SystemMessage implements Serializable, Cloneable
         MEANT_FOR(0),
         INPUT_CHANNEL(1),
         SEQUENCE_NUMBER(2),
-        END_OF_OUTPUT(3);
+        END_OF_OUTPUT(3),
+        END_OF_STREAM(4);
         // WHEN ADDING NEW MESSAGE TYPES CHANGE RETURNED VALUE IN count() METHOD
 
         private final int i;
@@ -23,7 +26,7 @@ public class SystemMessage implements Serializable, Cloneable
 
         private static int count()
         {
-            return 4;
+            return 5;
         }
     }
 
@@ -69,7 +72,7 @@ public class SystemMessage implements Serializable, Cloneable
         }
     }
 
-    public static class SequenceNumber extends Payload
+    public static class SequenceNumber extends Payload implements Comparable<SequenceNumber>
     {
         public int sequenceNumber;
         public SequenceNumber subsequenceNumber;
@@ -106,11 +109,6 @@ public class SystemMessage implements Serializable, Cloneable
             return previous;
         }
 
-        public void assignSubsequence(SequenceNumber sequenceNumber)
-        {
-            this.subsequenceNumber = sequenceNumber;
-        }
-
         @Override
         public Object clone()
         {
@@ -118,6 +116,36 @@ public class SystemMessage implements Serializable, Cloneable
                 return new SequenceNumber(sequenceNumber, null);
             else
                 return new SequenceNumber(sequenceNumber, (SequenceNumber) subsequenceNumber.clone());
+        }
+
+        private static KV<Integer, SequenceNumber> getLeaf(SequenceNumber sn)
+        {
+            KV<Integer, SequenceNumber> kv;
+            int i = 0;
+
+            SequenceNumber prev = null, curr = sn;
+            while (curr != null)
+            {
+                i++;
+                prev = curr;
+                curr = curr.subsequenceNumber;
+            }
+
+            return new KV(i, prev);
+        }
+
+        @Override
+        public int compareTo(SequenceNumber o)
+        {
+            KV<Integer, SequenceNumber> thisSeq = getLeaf(this);
+            KV<Integer, SequenceNumber> paramSeq = getLeaf(o);
+
+            if (thisSeq.getK() < paramSeq.getK())
+                return -1;
+            else if (thisSeq.getK() == paramSeq.getK())
+                return Integer.compare(thisSeq.getV().sequenceNumber, paramSeq.getV().sequenceNumber);
+            else
+                return 1;
         }
     }
 
@@ -130,6 +158,15 @@ public class SystemMessage implements Serializable, Cloneable
         }
     }
 
+    public static class EndOfStream extends Payload
+    {
+        @Override
+        public Object clone()
+        {
+            return new EndOfStream();
+        }
+    }
+
     public void addPayload(Payload p)
     {
         if (p instanceof MeantFor)
@@ -137,9 +174,19 @@ public class SystemMessage implements Serializable, Cloneable
         else if (p instanceof InputChannelSpecification)
             payloads.put(MessageTypes.INPUT_CHANNEL, p);
         else if (p instanceof SequenceNumber)
-            payloads.put(MessageTypes.SEQUENCE_NUMBER, p);
+        {
+            if (payloads.containsKey(MessageTypes.SEQUENCE_NUMBER) == false)
+                payloads.put(MessageTypes.SEQUENCE_NUMBER, p);
+            else
+            {
+                SequenceNumber root = (SequenceNumber)payloads.get(MessageTypes.SEQUENCE_NUMBER);
+                root.getSequenceNumberLeaf().subsequenceNumber = (SequenceNumber)p;
+            }
+        }
         else if (p instanceof EndOfOutput)
             payloads.put(MessageTypes.END_OF_OUTPUT, p);
+        else if (p instanceof EndOfStream)
+            payloads.put(MessageTypes.END_OF_STREAM, p);
         else
             throw new RuntimeException("Not supported type of payload.");
     }

@@ -1,12 +1,16 @@
 package compiler.interfaces.basic;
 
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
 
 public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IProducer<B>
 {
     protected int inputArity;
     private int parallelismHint = 1;
     protected IConsumer<B>[] consumers;
+    protected Map<String, Integer> inputGates = new HashMap<>();
+    protected Map<Integer, String> outputGates = new HashMap<>();
     protected String name;
 
     public Operator(String name, int inputArity, int outputArity, int parallelismHint)
@@ -49,14 +53,17 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IPro
     {
         return name;
     }
-
     public IConsumer[] getConsumers()
     {
         return consumers;
     }
-
     public Operator[] getParallelConstituent()
     {
         return null;
     }
+    public Map<String, Integer> getInputGates()
+    {
+        return inputGates;
+    }
+    public Map<Integer, String> getOutputGates() { return outputGates; }
 }

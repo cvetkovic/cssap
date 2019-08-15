@@ -9,8 +9,12 @@ import compiler.interfaces.lambda.SPredicate;
 import compiler.storm.SystemMessage;
 import compiler.structures.KV;
 
+import java.util.Random;
+
 public class NodesFactory
 {
+    // TODO: MOVE SYSTEM MESSAGE PASSING INTO OPERATOR CLASS
+
     public static <A, B> Operator<KV<A, SystemMessage>, KV<B, SystemMessage>> map(String name, Function1<A, B> code)
     {
         return map(name, 1, code);
@@ -23,6 +27,12 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
+                if (item.getK() == null && item.getV() != null)
+                {
+                    consumers[0].next(channelIdentifier, new KV(null, item.getV()));
+                    return;
+                }
+
                 KV<B, SystemMessage> kv = new KV<>(code.call(item.getK()), item.getV());
                 consumers[0].next(channelIdentifier, kv);
             }
@@ -41,8 +51,6 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
-                // TODO: spread this everywhere
-                // used for passing end of output messages
                 if (item.getK() == null && item.getV() != null)
                 {
                     consumers[0].next(channelIdentifier, item);
@@ -64,6 +72,12 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
+                if (item.getK() == null && item.getV() != null)
+                {
+                    consumers[0].next(channelIdentifier, new KV(null, item.getV()));
+                    return;
+                }
+
                 accumulator = function.call(accumulator, item.getK());
                 consumers[0].next(channelIdentifier, new KV<B, SystemMessage>(accumulator, item.getV()));
             }
@@ -77,9 +91,42 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
+                if (item.getK() == null && item.getV() != null)
+                {
+                    for (int i = 0; i < consumers.length; i++)
+                        consumers[i].next(channelIdentifier, new KV(null, item.getV()));
+                    return;
+                }
+
                 // clone here mandatory
                 for (int i = 0; i < consumers.length; i++)
                     consumers[i].next(i, new KV(item.getK(), item.getV().clone()));
+            }
+        };
+    }
+
+    public static <A> Operator<KV<A, SystemMessage>, KV<A, SystemMessage>> copyWithRandomSelectivity(String name, int outputArity)
+    {
+        return new Operator<KV<A, SystemMessage>, KV<A, SystemMessage>>(name, 1, outputArity, 1)
+        {
+            Random r = new Random();
+
+            @Override
+            public void next(int channelIdentifier, KV<A, SystemMessage> item)
+            {
+                if (item.getK() == null && item.getV() != null)
+                {
+                    for (int i = 0; i < consumers.length; i++)
+                        consumers[i].next(channelIdentifier, new KV(null, item.getV()));
+                    return;
+                }
+
+                for (int i = 0; i < consumers.length; i++)
+                {
+                    int bound = (int) (3 * r.nextDouble());
+                    for (int j = 0; j < bound; j++)
+                        consumers[i].next(i, new KV(item.getK(), item.getV().clone()));
+                }
             }
         };
     }
@@ -96,7 +143,7 @@ public class NodesFactory
         };
     }
 
-    public static <A> Operator<KV<A, SystemMessage>, KV<A, SystemMessage>> robinRoundSplitter(String name, int outputArity)
+    /*public static <A> Operator<KV<A, SystemMessage>, KV<A, SystemMessage>> robinRoundSplitter(String name, int outputArity)
     {
         return new Operator<KV<A, SystemMessage>, KV<A, SystemMessage>>(name, 1, outputArity, 1)
         {
@@ -109,7 +156,7 @@ public class NodesFactory
                 sentTo = (sentTo + 1) % consumers.length;
             }
         };
-    }
+    }*/
 
     public static <A> Sink<KV<A, SystemMessage>> sink(String name, Endpoint<A> code)
     {
@@ -119,31 +166,6 @@ public class NodesFactory
             public void next(int channelNumber, KV<A, SystemMessage> item)
             {
                 code.call(item.getK());
-            }
-        };
-    }
-
-    public static <A> Operator<KV<A, SystemMessage>, KV<A, SystemMessage>> duplicate(String name)
-    {
-        return new Operator<KV<A, SystemMessage>, KV<A, SystemMessage>>(name, 1, 1, 1)
-        {
-            @Override
-            public void next(int channelIdentifier, KV<A, SystemMessage> item)
-            {
-                consumers[0].next(0, item);
-                consumers[0].next(0, item);
-            }
-        };
-    }
-
-    public static <A> Operator<KV<A, SystemMessage>, KV<A, SystemMessage>> buffer(String name)
-    {
-        return new Operator<KV<A, SystemMessage>, KV<A, SystemMessage>>(name, 1, 1, 1)
-        {
-            @Override
-            public void next(int channelIdentifier, KV<A, SystemMessage> item)
-            {
-                consumers[0].next(0, item);
             }
         };
     }

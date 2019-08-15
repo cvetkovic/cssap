@@ -1,8 +1,12 @@
 package compiler.structures;
 
-public class SuccessiveNumberGenerator
+import java.io.Serializable;
+
+public class SuccessiveNumberGenerator implements Serializable
 {
-    private int number = 1;
+    private final int START_FROM = 1;
+
+    private int number = START_FROM;
 
     public int next()
     {
@@ -10,4 +14,5 @@ public class SuccessiveNumberGenerator
     }
     public int getCurrentState() { return number; }
     public void increase() { number++; }
+    public void reset() { number = START_FROM; }
 }

@@ -33,7 +33,8 @@ import java.util.Map;
 
 public abstract class Graph implements Serializable
 {
-    private static int uniqueId = 0;
+    private static int uniqueGateId = 1;
+    private Map<String, KV<Object, String>> channelMapping = new HashMap<>();
     protected String name;
 
     public abstract int getInputArity();
@@ -73,6 +74,8 @@ public abstract class Graph implements Serializable
         // compiling source into spount
         BaseRichSpout spout = generateSpout(source);
         builder.setSpout("source", spout);
+        //channelMapping.put("G" + uniqueGateId, source);
+        source.getOutputGates().put(0, "G" + uniqueGateId++);
 
         // getting reference to a first operator in the graph
         Operator operator;
@@ -88,6 +91,8 @@ public abstract class Graph implements Serializable
         BoltDeclarer declarer = builder.setBolt(operator.getName(), generated).globalGrouping("source");
         StormBolt previous = new StormBolt(operator, generated, declarer);
         cache.put(operator, previous);
+        channelMapping.put("G" + (uniqueGateId - 1), new KV(previous.getOperator(), "G" + uniqueGateId));
+        ((Operator) previous.getOperator()).getInputGates().put("G" + uniqueGateId++, previous.inputGateCount++);
 
         // invocation of recursive compilation
         linkOperators(cache, builder, previous, operator);
@@ -99,6 +104,8 @@ public abstract class Graph implements Serializable
     {
         for (int i = 0; i < previousOperator.getOutputArity(); i++)
         {
+            if (!previousOperator.getOutputGates().containsKey(i))
+                previousOperator.getOutputGates().put(i, "G" + uniqueGateId++);
             IConsumer[] successors = previousOperator.getConsumers();
 
             ///////////////////////////////////////////////////////////////
@@ -171,6 +178,13 @@ public abstract class Graph implements Serializable
                 /* TODO: BUG HERE -> DO NOT CREATE CONNECTION BETWEEN NODES IF IT HAS ALREADY BEEN CREATED BY
                          OTHER TRAVERSAL
                  */
+
+                // input channel information saving
+                // TODO: check channelMapping.put first argument
+                channelMapping.put("G" + (uniqueGateId - 1), new KV(bolt.getOperator(), "G" + uniqueGateId));
+                ((Operator) bolt.getOperator()).getInputGates().put("G" + uniqueGateId++, bolt.inputGateCount++);
+
+                // continue linking
                 linkOperators(cache, builder, bolt, ((Operator) bolt.getOperator()));
             }
             else if (previousOperator.getConsumers()[i] instanceof Sink)
@@ -196,8 +210,27 @@ public abstract class Graph implements Serializable
                 }
                 else
                     bolt.getDeclarer().globalGrouping(previousOperator.getName());
+
+                // input channel information saving
+                if (((Sink) bolt.getOperator()).getInputGates().size() != bolt.getOperator().getInputArity())
+                {
+                    channelMapping.put("G" + (uniqueGateId - 1), new KV(bolt.getOperator(), "G" + uniqueGateId));
+                    ((Sink) bolt.getOperator()).getInputGates().put("G" + uniqueGateId++, bolt.inputGateCount++);
+                }
             }
         }
+    }
+
+    private int extractInputChannel(String gateID)
+    {
+        KV<Object, String> kv = channelMapping.get(gateID);
+
+        if (kv.getK() instanceof Operator)
+            return (int)((Operator)kv.getK()).getInputGates().get(kv.getV());
+        else if (kv.getK() instanceof Sink)
+            return (int)((Sink)kv.getK()).getInputGates().get(kv.getV());
+        else
+            throw new RuntimeException("Never meant to be called with provided parameter");
     }
 
     /**
@@ -211,6 +244,7 @@ public abstract class Graph implements Serializable
         return new BaseRichSpout()
         {
             private SpoutOutputCollector collector;
+            private SuccessiveNumberGenerator generator = new SuccessiveNumberGenerator();
 
             @Override
             public void open(Map conf, TopologyContext context, SpoutOutputCollector collector)
@@ -221,9 +255,14 @@ public abstract class Graph implements Serializable
             @Override
             public void nextTuple()
             {
+                String gateID = source.getOutputGates().get(0).toString();
+                int consumerInputChannel = extractInputChannel(gateID);
+
                 // all the inputs go to channel zero(0)
                 SystemMessage message = new SystemMessage();
-                message.addPayload(new SystemMessage.InputChannelSpecification(0));
+                message.addPayload(new SystemMessage.InputChannelSpecification(consumerInputChannel));
+                message.addPayload(new SystemMessage.SequenceNumber(generator.getCurrentState()));
+                generator.next();
 
                 collector.emit(new Values(source.next(), message));
             }
@@ -260,12 +299,14 @@ public abstract class Graph implements Serializable
             private MinHeap buffer;
 
             // common generator for whole operator
-            private SuccessiveNumberGenerator sequenceNumberGenerator = null;
+            private SuccessiveNumberGenerator sequenceNumberGenerator = new SuccessiveNumberGenerator();
+            private SuccessiveNumberGenerator subsequenceGenerator = new SuccessiveNumberGenerator();
 
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
                 this.collector = collector;
+                this.subsequenceGenerator.reset();
 
                 Object item = input.getValueByField("data");
                 SystemMessage message = (SystemMessage) input.getValueByField("message");
@@ -286,11 +327,10 @@ public abstract class Graph implements Serializable
                         buffer = new MinHeap();
                     }
 
-                    SystemMessage.SequenceNumber sequenceNumber = ((SystemMessage.SequenceNumber) message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).getSequenceNumberLeaf();
-                    buffer.insert(new KV<Integer, Tuple>(sequenceNumber.sequenceNumber, input));
+                    buffer.insert(input);
 
-                    if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState()) // &&
-                    //message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
+                    /*if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState()) &&
+                    message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
                     {
                         ///////////////////////////////////////////////////////////////
                         //  CONSUME EVERYTHING THAT IS IN BUFFER AND IS IN RIGHT ORDER
@@ -307,7 +347,7 @@ public abstract class Graph implements Serializable
 
                             int inputChannel = ((SystemMessage.InputChannelSpecification) payload).inputChannel;
                             /*if (inputChannel != lastSentToChannel && lastSentToChannel != -1)
-                                message.addPayload(new SystemMessage.EndOfOutput());*/
+                                message.addPayload(new SystemMessage.EndOfOutput());*//*
 
                             message.deletePayloadFromMessage(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
 
@@ -315,20 +355,16 @@ public abstract class Graph implements Serializable
 
                             lastSentToChannel = inputChannel;
                         }
-                    }
+                    }*/
                 }
                 else
                 {
                     operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
 
-                    // do not add end of output if sequence numbers are not introduced
-                    if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) != null)
-                    {
-                        SystemMessage eoo = new SystemMessage();
-                        eoo.addPayload(new SystemMessage.EndOfOutput());
-
-                        operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(null, eoo));
-                    }
+                    // here end of output must be sent
+                    SystemMessage eoo = new SystemMessage();
+                    eoo.addPayload(new SystemMessage.EndOfOutput());
+                    operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(null, eoo));
                 }
             }
 
@@ -380,22 +416,29 @@ public abstract class Graph implements Serializable
                                 ///////////////////////////////////////////////////////////////
                                 //  SEQUENCE NUMBERS
                                 ///////////////////////////////////////////////////////////////
-                                if (sequenceNumberGenerator == null)
-                                    sequenceNumberGenerator = new SuccessiveNumberGenerator();
-
-                                SystemMessage.SequenceNumber newSn = new SystemMessage.SequenceNumber(sequenceNumberGenerator.getCurrentState());
-                                if (this == internalConsumers[internalConsumers.length - 1]) // equivalent to i == length - 1
-                                    sequenceNumberGenerator.next();
-
-                                if (message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null)
-                                    message.addPayload(newSn);
-                                else
-                                    ((SystemMessage.SequenceNumber) message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).getSequenceNumberLeaf().assignSubsequence(newSn);
+                                // sending the same sequence number to all following nodes
+                                // grouping will decide what messages it will drop
+                                ///////////////////////////////////////////////////////////////
+                                SystemMessage.SequenceNumber sn = new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState());
+                                // do not increment sequence number if EOO is present
+                                if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) == null)
+                                    subsequenceGenerator.next();
+                                message.addPayload(sn);
+                            }
+                            else
+                            {
+                                ///////////////////////////////////////////////////////////////
+                                //  SEQUENCE NUMBERS
+                                ///////////////////////////////////////////////////////////////
+                                message.addPayload(new SystemMessage.SequenceNumber(sequenceNumberGenerator.getCurrentState()));
+                                sequenceNumberGenerator.next();
                             }
                             ///////////////////////////////////////////////////////////////
                             //  INPUT CHANNEL ROUTING
                             ///////////////////////////////////////////////////////////////
-                            message.addPayload(new SystemMessage.InputChannelSpecification(channelNumber));
+                            String gateID = operator.getOperator().getOutputGates().get(channelNumber).toString();
+                            int consumerInputChannel = extractInputChannel(gateID);
+                            message.addPayload(new SystemMessage.InputChannelSpecification(consumerInputChannel));
 
                             collector.emit(new Values(item, message));
                         }

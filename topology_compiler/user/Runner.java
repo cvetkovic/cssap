@@ -17,7 +17,7 @@ public class Runner
 {
     public static void main(String[] args)
     {
-        orderPreservingTest2();
+        orderPreservingTest3();
     }
 
     /*
@@ -29,7 +29,7 @@ public class Runner
 
         InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
         Operator multiplier = NodesFactory.map("multiplier", (Double item) -> item * 3);
-        Operator copy = NodesFactory.copy("copy", 3);
+        Operator copy = NodesFactory.copyWithRandomSelectivity("copy", 3);
         Operator filter1 = NodesFactory.filter("filter1", (Double item) -> item < 1);
         Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 1 && item < 2);
         Operator filter3 = NodesFactory.filter("filter3", (Double item) -> item >= 2 && item < 3);
@@ -41,6 +41,28 @@ public class Runner
                 new AtomicGraph(filter3));
 
         SerialGraph serialGraph = new SerialGraph(new AtomicGraph(multiplier), new AtomicGraph(copy), parallelGraph, new AtomicGraph(merge));
+        Operator op = serialGraph.getOperator();
+        op.subscribe(printer);
+        //serialGraph.executeLocal(source);
+
+        new LocalCluster().submitTopology("topologyCompiler", new Config(), serialGraph.getStormTopology(source));
+    }
+
+    private static void orderPreservingTest3()
+    {
+        Random r = new Random();
+
+        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
+        Operator copy = NodesFactory.copy("copy", 2);
+        Operator filter1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
+        Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);
+        Operator merge = NodesFactory.merge("merger", 2);
+        Sink printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
+
+        ParallelGraph parallelGraph = new ParallelGraph(new AtomicGraph(filter1),
+                new AtomicGraph(filter2));
+
+        SerialGraph serialGraph = new SerialGraph(new AtomicGraph(copy), parallelGraph, new AtomicGraph(merge));
         Operator op = serialGraph.getOperator();
         op.subscribe(printer);
         //serialGraph.executeLocal(source);
