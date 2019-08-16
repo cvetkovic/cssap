@@ -138,7 +138,7 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
-                consumers[0].next(channelIdentifier, item);
+                consumers[0].next(0, item);
             }
         };
     }

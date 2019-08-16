@@ -191,7 +191,7 @@ public abstract class Graph implements Serializable
                 if (cache.get(previousOperator.getConsumers()[i]) == null)
                 {
                     bolt = new StormBolt(previousOperator.getConsumers()[i],
-                            generateSink((Sink)previousOperator.getConsumers()[i]),
+                            generateSink((Sink) previousOperator.getConsumers()[i]),
                             null);
 
                     cache.put(previousOperator.getConsumers()[i], bolt);
@@ -213,18 +213,6 @@ public abstract class Graph implements Serializable
                     ((Sink) bolt.getOperator()).getInputGates().put("E" + uniqueGateId++, bolt.inputGateCount++);
             }
         }
-    }
-
-    private int extractInputChannel(String gateID)
-    {
-        /*KV<Object, String> kv = channelMapping.get(gateID);
-
-        if (kv.getK() instanceof Operator)
-            return (int) ((Operator) kv.getK()).getInputGates().get(kv.getV());
-        else if (kv.getK() instanceof Sink)
-            return (int) ((Sink) kv.getK()).getInputGates().get(kv.getV());
-        else*/
-            throw new RuntimeException("Never meant to be called with provided parameter");
     }
 
     /**
@@ -288,7 +276,8 @@ public abstract class Graph implements Serializable
             private Integer[] taskIds;
 
             // order preserving structures
-            private SuccessiveNumberGenerator expectingSequence;
+            private SuccessiveNumberGenerator baseExpectingSequence;
+            private SuccessiveNumberGenerator leafExpectingSequence;
             private MinHeap buffer;
 
             // common generator for whole operator
@@ -319,52 +308,49 @@ public abstract class Graph implements Serializable
                 ///////////////////////////////////////////////////////////////
                 if (operator.getInputArity() > 1)
                 {
-                    if (expectingSequence == null)
+                    if (baseExpectingSequence == null && leafExpectingSequence == null)
                     {
-                        expectingSequence = new SuccessiveNumberGenerator();
+                        baseExpectingSequence = new SuccessiveNumberGenerator();
+                        leafExpectingSequence = new SuccessiveNumberGenerator();
                         buffer = new MinHeap();
                     }
 
                     buffer.insert(input);
 
-                    /*if (sequenceNumber.sequenceNumber == expectingSequence.getCurrentState()) &&
-                    message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null)
+                    SystemMessage.SequenceNumber top = ((SystemMessage.SequenceNumber) ((SystemMessage) (buffer.peek().getValueByField("message"))).getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER));
+                    while (buffer.peek() != null &&
+                            top.sequenceNumber == baseExpectingSequence.getCurrentState() &&
+                            top.getSequenceNumberLeaf().sequenceNumber == leafExpectingSequence.getCurrentState())
                     {
-                        ///////////////////////////////////////////////////////////////
-                        //  CONSUME EVERYTHING THAT IS IN BUFFER AND IS IN RIGHT ORDER
-                        ///////////////////////////////////////////////////////////////
-                        message.deletePayloadFromMessage(SystemMessage.MessageTypes.END_OF_OUTPUT);
-                        int lastSentToChannel = -1;
+                        Tuple t = buffer.poll();
 
-                        while (buffer.peek() != null && buffer.peek().getK() == expectingSequence.getCurrentState())
+                        if (t.getValueByField("data") == null)
                         {
-                            Tuple itemToSend = buffer.poll().getV();
-                            expectingSequence.increase();
+                            baseExpectingSequence.next();
+                            leafExpectingSequence.reset();
 
-                            // TODO: remove consumed sequence number for sending it further
-
-                            int inputChannel = ((SystemMessage.InputChannelSpecification) payload).inputChannel;
-                            /*if (inputChannel != lastSentToChannel && lastSentToChannel != -1)
-                                message.addPayload(new SystemMessage.EndOfOutput());*/
-                    /*
-
-                            message.deletePayloadFromMessage(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
-
-                            operator.getOperator().next(inputChannel, new KV(itemToSend.getValueByField("data"), itemToSend.getValueByField("message")));
-
-                            lastSentToChannel = inputChannel;
+                            // here end of output must be sent
+                            SystemMessage eoo = (SystemMessage) message.clone();
+                            ((SystemMessage.SequenceNumber) eoo.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).removeLeafSubsequence();
+                            eoo.addPayload(new SystemMessage.EndOfOutput());
+                            operator.getOperator().next((int) operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(null, eoo));
                         }
-                    }*/
+                        else
+                        {
+                            operator.getOperator().next((int) operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(item, message));
+                            leafExpectingSequence.next();
+                        }
+                    }
                 }
                 else
                 {
-                    operator.getOperator().next((int)operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(item, message));
+                    operator.getOperator().next((int) operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(item, message));
 
                     // here end of output must be sent
-                    SystemMessage eoo = (SystemMessage)message.clone();
-                    ((SystemMessage.SequenceNumber)eoo.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).removeLeafSubsequence();
+                    SystemMessage eoo = (SystemMessage) message.clone();
+                    ((SystemMessage.SequenceNumber) eoo.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).removeLeafSubsequence();
                     eoo.addPayload(new SystemMessage.EndOfOutput());
-                    operator.getOperator().next((int)operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(null, eoo));
+                    operator.getOperator().next((int) operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(null, eoo));
                 }
             }
 
@@ -412,29 +398,17 @@ public abstract class Graph implements Serializable
                                 ///////////////////////////////////////////////////////////////
                                 int taskGoingTo = taskIds[channelNumber];
                                 message.addPayload(new SystemMessage.MeantFor(operator.getOperator().getName(), taskGoingTo));
+                            }
 
-                                ///////////////////////////////////////////////////////////////
-                                //  SEQUENCE NUMBERS
-                                ///////////////////////////////////////////////////////////////
-                                // sending the same sequence number to all following nodes
-                                // grouping will decide what messages it will drop
-                                ///////////////////////////////////////////////////////////////
-                                SystemMessage.SequenceNumber sn = new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState());
-                                subsequenceGenerator.next();
-                                /*
-                                // do not increment sequence number if EOO is present
-                                if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) == null)
-                                    subsequenceGenerator.next();*/
-                                message.addPayload(sn);
-                            }
-                            else
-                            {
-                                ///////////////////////////////////////////////////////////////
-                                //  SEQUENCE NUMBERS
-                                ///////////////////////////////////////////////////////////////
-                                message.addPayload(new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState()));
-                                subsequenceGenerator.next();
-                            }
+                            ///////////////////////////////////////////////////////////////
+                            //  SEQUENCE NUMBERS
+                            ///////////////////////////////////////////////////////////////
+                            // sending the same sequence number to all following nodes
+                            // grouping will decide what messages it will drop
+                            ///////////////////////////////////////////////////////////////
+                            message.addPayload(new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState()));
+                            subsequenceGenerator.next();
+
                             ///////////////////////////////////////////////////////////////
                             //  INPUT CHANNEL ROUTING
                             ///////////////////////////////////////////////////////////////
@@ -462,7 +436,8 @@ public abstract class Graph implements Serializable
                 SystemMessage message = (SystemMessage) input.getValueByField("message");
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
 
-                sink.next((int)(sink.getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel)), new KV(item, message));
+                if (item != null)
+                    sink.next((int) (sink.getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel)), new KV(item, message));
             }
 
             @Override

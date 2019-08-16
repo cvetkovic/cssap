@@ -94,19 +94,6 @@ public class SystemMessage implements Serializable, Cloneable
                 return subsequenceNumber.getSequenceNumberLeaf();
         }
 
-        public SequenceNumber getParentOfLeaf()
-        {
-            SequenceNumber previous = null, current = this;
-            // TODO: test this
-            while (current.subsequenceNumber != null)
-            {
-                previous = current;
-                current = current.subsequenceNumber;
-            }
-
-            return previous;
-        }
-
         @Override
         public Object clone()
         {
