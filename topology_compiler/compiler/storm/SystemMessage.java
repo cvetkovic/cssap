@@ -56,9 +56,9 @@ public class SystemMessage implements Serializable, Cloneable
 
     public static class InputChannelSpecification extends Payload
     {
-        public int inputChannel;
+        public String inputChannel;
 
-        public InputChannelSpecification(int inputChannel)
+        public InputChannelSpecification(String inputChannel)
         {
             this.inputChannel = inputChannel;
         }

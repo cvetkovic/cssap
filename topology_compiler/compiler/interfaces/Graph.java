@@ -34,7 +34,6 @@ import java.util.Map;
 public abstract class Graph implements Serializable
 {
     private static int uniqueGateId = 1;
-    private Map<String, KV<Object, String>> channelMapping = new HashMap<>();
     protected String name;
 
     public abstract int getInputArity();
@@ -75,7 +74,7 @@ public abstract class Graph implements Serializable
         BaseRichSpout spout = generateSpout(source);
         builder.setSpout("source", spout);
         //channelMapping.put("G" + uniqueGateId, source);
-        source.getOutputGates().put(0, "G" + uniqueGateId++);
+        source.getOutputGates().put(0, "E" + uniqueGateId);
 
         // getting reference to a first operator in the graph
         Operator operator;
@@ -91,8 +90,7 @@ public abstract class Graph implements Serializable
         BoltDeclarer declarer = builder.setBolt(operator.getName(), generated).globalGrouping("source");
         StormBolt previous = new StormBolt(operator, generated, declarer);
         cache.put(operator, previous);
-        channelMapping.put("G" + (uniqueGateId - 1), new KV(previous.getOperator(), "G" + uniqueGateId));
-        ((Operator) previous.getOperator()).getInputGates().put("G" + uniqueGateId++, previous.inputGateCount++);
+        ((Operator) previous.getOperator()).getInputGates().put("E" + uniqueGateId++, previous.inputGateCount++);
 
         // invocation of recursive compilation
         linkOperators(cache, builder, previous, operator);
@@ -105,7 +103,7 @@ public abstract class Graph implements Serializable
         for (int i = 0; i < previousOperator.getOutputArity(); i++)
         {
             if (!previousOperator.getOutputGates().containsKey(i))
-                previousOperator.getOutputGates().put(i, "G" + uniqueGateId++);
+                previousOperator.getOutputGates().put(i, "E" + uniqueGateId);
             IConsumer[] successors = previousOperator.getConsumers();
 
             ///////////////////////////////////////////////////////////////
@@ -181,8 +179,7 @@ public abstract class Graph implements Serializable
 
                 // input channel information saving
                 // TODO: check channelMapping.put first argument
-                channelMapping.put("G" + (uniqueGateId - 1), new KV(bolt.getOperator(), "G" + uniqueGateId));
-                ((Operator) bolt.getOperator()).getInputGates().put("G" + uniqueGateId++, bolt.inputGateCount++);
+                ((Operator) bolt.getOperator()).getInputGates().put("E" + uniqueGateId++, bolt.inputGateCount++);
 
                 // continue linking
                 linkOperators(cache, builder, bolt, ((Operator) bolt.getOperator()));
@@ -194,7 +191,7 @@ public abstract class Graph implements Serializable
                 if (cache.get(previousOperator.getConsumers()[i]) == null)
                 {
                     bolt = new StormBolt(previousOperator.getConsumers()[i],
-                            generateSink(previousOperator.getConsumers()[i]),
+                            generateSink((Sink)previousOperator.getConsumers()[i]),
                             null);
 
                     cache.put(previousOperator.getConsumers()[i], bolt);
@@ -213,23 +210,20 @@ public abstract class Graph implements Serializable
 
                 // input channel information saving
                 if (((Sink) bolt.getOperator()).getInputGates().size() != bolt.getOperator().getInputArity())
-                {
-                    channelMapping.put("G" + (uniqueGateId - 1), new KV(bolt.getOperator(), "G" + uniqueGateId));
-                    ((Sink) bolt.getOperator()).getInputGates().put("G" + uniqueGateId++, bolt.inputGateCount++);
-                }
+                    ((Sink) bolt.getOperator()).getInputGates().put("E" + uniqueGateId++, bolt.inputGateCount++);
             }
         }
     }
 
     private int extractInputChannel(String gateID)
     {
-        KV<Object, String> kv = channelMapping.get(gateID);
+        /*KV<Object, String> kv = channelMapping.get(gateID);
 
         if (kv.getK() instanceof Operator)
             return (int) ((Operator) kv.getK()).getInputGates().get(kv.getV());
         else if (kv.getK() instanceof Sink)
             return (int) ((Sink) kv.getK()).getInputGates().get(kv.getV());
-        else
+        else*/
             throw new RuntimeException("Never meant to be called with provided parameter");
     }
 
@@ -255,12 +249,11 @@ public abstract class Graph implements Serializable
             @Override
             public void nextTuple()
             {
-                String gateID = source.getOutputGates().get(0).toString();
-                int consumerInputChannel = extractInputChannel(gateID);
+                String edgeID = source.getOutputGates().get(0).toString();
 
                 // all the inputs go to channel zero(0)
                 SystemMessage message = new SystemMessage();
-                message.addPayload(new SystemMessage.InputChannelSpecification(consumerInputChannel));
+                message.addPayload(new SystemMessage.InputChannelSpecification(edgeID));
                 message.addPayload(new SystemMessage.SequenceNumber(generator.getCurrentState()));
                 generator.next();
 
@@ -365,13 +358,13 @@ public abstract class Graph implements Serializable
                 }
                 else
                 {
-                    operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
+                    operator.getOperator().next((int)operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(item, message));
 
                     // here end of output must be sent
                     SystemMessage eoo = (SystemMessage)message.clone();
                     ((SystemMessage.SequenceNumber)eoo.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).removeLeafSubsequence();
                     eoo.addPayload(new SystemMessage.EndOfOutput());
-                    operator.getOperator().next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(null, eoo));
+                    operator.getOperator().next((int)operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel), new KV(null, eoo));
                 }
             }
 
@@ -445,9 +438,8 @@ public abstract class Graph implements Serializable
                             ///////////////////////////////////////////////////////////////
                             //  INPUT CHANNEL ROUTING
                             ///////////////////////////////////////////////////////////////
-                            String gateID = operator.getOperator().getOutputGates().get(channelNumber).toString();
-                            int consumerInputChannel = extractInputChannel(gateID);
-                            message.addPayload(new SystemMessage.InputChannelSpecification(consumerInputChannel));
+                            String outputEdge = operator.getOperator().getOutputGates().get(channelNumber).toString();
+                            message.addPayload(new SystemMessage.InputChannelSpecification(outputEdge));
 
                             collector.emit(new Values(item, message));
                         }
@@ -459,7 +451,7 @@ public abstract class Graph implements Serializable
         };
     }
 
-    public BaseBasicBolt generateSink(IConsumer sink)
+    public BaseBasicBolt generateSink(Sink sink)
     {
         return new BaseBasicBolt()
         {
@@ -470,7 +462,7 @@ public abstract class Graph implements Serializable
                 SystemMessage message = (SystemMessage) input.getValueByField("message");
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
 
-                sink.next(((SystemMessage.InputChannelSpecification) payload).inputChannel, new KV(item, message));
+                sink.next((int)(sink.getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel)), new KV(item, message));
             }
 
             @Override
