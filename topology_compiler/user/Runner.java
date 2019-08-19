@@ -53,14 +53,14 @@ public class Runner
         Random r = new Random();
 
         InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
-        Operator copy = NodesFactory.copy("copy", 2);
-        Operator filter1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
-        Operator filter2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);
+        Operator copy = NodesFactory.copyWithRandomSelectivity("copy", 2);
+        Operator map1 = NodesFactory.map("map1", (Double item) -> item);
+        Operator map2 = NodesFactory.map("map2", (Double item) -> item);
         Operator merge = NodesFactory.merge("merger", 2);
         Sink printer = NodesFactory.sink("printer", (item) -> System.out.println(item));
 
-        ParallelGraph parallelGraph = new ParallelGraph(new AtomicGraph(filter1),
-                new AtomicGraph(filter2));
+        ParallelGraph parallelGraph = new ParallelGraph(new AtomicGraph(map1),
+                new AtomicGraph(map2));
 
         SerialGraph serialGraph = new SerialGraph(new AtomicGraph(copy), parallelGraph, new AtomicGraph(merge));
         Operator op = serialGraph.getOperator();

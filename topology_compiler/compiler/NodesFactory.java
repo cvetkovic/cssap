@@ -123,7 +123,7 @@ public class NodesFactory
 
                 for (int i = 0; i < consumers.length; i++)
                 {
-                    int bound = (int) (3 * r.nextDouble());
+                    int bound = (int) (5 * r.nextDouble());
                     for (int j = 0; j < bound; j++)
                         consumers[i].next(i, new KV(item.getK(), item.getV().clone()));
                 }
@@ -165,6 +165,10 @@ public class NodesFactory
             @Override
             public void next(int channelNumber, KV<A, SystemMessage> item)
             {
+                // TODO: for debug
+                System.out.print(item.getV().getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER).toString());
+                System.out.print(" - ");
+
                 code.call(item.getK());
             }
         };

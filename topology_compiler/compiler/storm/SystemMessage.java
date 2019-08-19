@@ -86,12 +86,14 @@ public class SystemMessage implements Serializable, Cloneable
             this.subsequenceNumber = subsequenceNumber;
         }
 
-        public SequenceNumber getSequenceNumberLeaf()
+        public SequenceNumber getLeaf()
         {
-            if (this.subsequenceNumber == null)
-                return this;
-            else
-                return subsequenceNumber.getSequenceNumberLeaf();
+            SequenceNumber curr = this;
+
+            while (curr.subsequenceNumber != null)
+                curr = curr.subsequenceNumber;
+
+            return curr;
         }
 
         @Override
@@ -122,12 +124,12 @@ public class SystemMessage implements Serializable, Cloneable
                     return 1;
             }
 
-            if (left == null)
-                return -1;
-            else if (right == null)
-                return 1;
-            else
+            if (left == null && right == null)
                 return 0;
+            else if (left == null)
+                return -1;
+            else // right == null
+                return 1;
         }
 
         @Override
@@ -145,9 +147,8 @@ public class SystemMessage implements Serializable, Cloneable
             return sb.toString().substring(0, sb.length() - 1); // remove last .
         }
 
-        public void removeLeafSubsequence()
+        public void removeLeaf()
         {
-            // TODO: BUG HERE
             SequenceNumber prev = null, curr = this;
             while (curr.subsequenceNumber != null)
             {
@@ -158,23 +159,46 @@ public class SystemMessage implements Serializable, Cloneable
             if (prev != null)
                 prev.subsequenceNumber = null;
         }
+
+        public static boolean commonProducer(SequenceNumber s1, SequenceNumber s2)
+        {
+            while (s1 != null && s2 != null)
+            {
+                if (s1.sequenceNumber != s2.sequenceNumber && s1.subsequenceNumber != null && s2.subsequenceNumber != null)
+                    return false;
+
+                s1 = s1.subsequenceNumber;
+                s2 = s2.subsequenceNumber;
+            }
+
+            if ((s1 == null && s2 != null) || (s1 != null && s2 == null))
+                return false;
+            else
+                return true;
+        }
     }
 
     public static class EndOfOutput extends Payload
     {
+        private SequenceNumber sequenceNumber;
+
+        public EndOfOutput(SequenceNumber sequenceNumber)
+        {
+            this.sequenceNumber = sequenceNumber;
+        }
+
         @Override
         public Object clone()
         {
-            return new EndOfOutput();
+            return new EndOfOutput((SequenceNumber) sequenceNumber.clone());
         }
     }
 
-    public static class EndOfStream extends Payload
+    public static class EndOfStream extends SequenceNumber
     {
-        @Override
-        public Object clone()
+        public EndOfStream()
         {
-            return new EndOfStream();
+            super(Integer.MAX_VALUE);
         }
     }
 
@@ -191,7 +215,7 @@ public class SystemMessage implements Serializable, Cloneable
             else
             {
                 SequenceNumber root = (SequenceNumber) payloads.get(MessageTypes.SEQUENCE_NUMBER);
-                root.getSequenceNumberLeaf().subsequenceNumber = (SequenceNumber) p;
+                root.getLeaf().subsequenceNumber = (SequenceNumber) p;
             }
         }
         else if (p instanceof EndOfOutput)
@@ -209,17 +233,6 @@ public class SystemMessage implements Serializable, Cloneable
 
     public void deletePayloadFromMessage(MessageTypes type)
     {
-        // TODO: add to remove leaf subsequence
-        /*if (type == MessageTypes.SEQUENCE_NUMBER)
-        {
-            // TODO: test this
-            SequenceNumber root = (SequenceNumber) payloads.get(MessageTypes.SEQUENCE_NUMBER);
-            if (root.getParentOfLeaf() == null)
-                payloads.remove(MessageTypes.SEQUENCE_NUMBER);
-            else
-                root.getParentOfLeaf().subsequenceNumber = null;
-        }
-        else*/
         payloads.remove(type);
     }
 

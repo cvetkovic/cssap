@@ -1,19 +1,53 @@
 package compiler.structures;
 
 import compiler.storm.SystemMessage;
-import org.apache.storm.tuple.Tuple;
 
 import java.io.Serializable;
 
 public class MinHeap implements Serializable
 {
     private int size;
-    private Tuple[] collection;
+    private HeapElement[] collection;
+
+    public static class HeapElement implements Comparable<HeapElement>
+    {
+        private Object element;
+        private SystemMessage message;
+
+        public HeapElement(Object element, SystemMessage message)
+        {
+            this.element = element;
+            this.message = message;
+        }
+
+        public Object getElement()
+        {
+            return element;
+        }
+
+        public SystemMessage getMessage()
+        {
+            return message;
+        }
+
+        @Override
+        public int compareTo(HeapElement o)
+        {
+            if (this.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null ||
+                o.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null)
+                throw new RuntimeException("Item doesn't have sequence number and hence cannot be compared.");
+
+            SystemMessage.SequenceNumber snLeft = (SystemMessage.SequenceNumber)this.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+            SystemMessage.SequenceNumber snRight = (SystemMessage.SequenceNumber)o.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+
+            return snLeft.compareTo(snRight);
+        }
+    }
 
     public MinHeap()
     {
         this.size = 0;
-        this.collection = new Tuple[1000];
+        this.collection = new HeapElement[1000];
     }
 
     private int parent(int i)
@@ -33,32 +67,35 @@ public class MinHeap implements Serializable
 
     private void swap(int i1, int i2)
     {
-        Tuple tmp = collection[i1];
+        HeapElement tmp = collection[i1];
         collection[i1] = collection[i2];
         collection[i2] = tmp;
     }
 
-    public void insert(Tuple tuple)
+    public void insert(Object tuple, SystemMessage systemMessage)
     {
         if (size == collection.length)
         {
             // array extension
-            Tuple[] newArray = new Tuple[collection.length * 5];
+            HeapElement[] newArray = new HeapElement[collection.length * 5];
             System.arraycopy(collection, 0, newArray, 0, collection.length);
             collection = newArray;
         }
 
         int i = size;
-        collection[i] = tuple;
+        collection[i] = new HeapElement(tuple, systemMessage);
         size++;
 
-        SystemMessage parent = (SystemMessage)collection[parent(i)].getValueByField("message");
-        SystemMessage child = (SystemMessage)collection[i].getValueByField("message");
+        HeapElement parent = collection[parent(i)];
+        HeapElement child = collection[i];
 
-        while (i != 0 && ((SystemMessage.SequenceNumber)parent.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).compareTo((SystemMessage.SequenceNumber)child.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)) > 0)
+        while (i != 0 && parent.compareTo(child) > 0)
         {
             swap(i, parent(i));
             i = parent(i);
+
+            parent = collection[parent(i)];
+            child = collection[i];
         }
     }
 
@@ -68,10 +105,10 @@ public class MinHeap implements Serializable
         int r = rightChild(i);
         int smallest = i;
 
-        if (l < size && ((SystemMessage.SequenceNumber)((SystemMessage)collection[l].getValueByField("message")).getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).compareTo(((SystemMessage.SequenceNumber)((SystemMessage)collection[smallest].getValueByField("message")).getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER))) < 0)
+        if (l < size && (collection[l].compareTo(collection[smallest]) < 0))
             smallest = l;
 
-        if (l < size && ((SystemMessage.SequenceNumber)((SystemMessage)collection[r].getValueByField("message")).getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)).compareTo(((SystemMessage.SequenceNumber)((SystemMessage)collection[smallest].getValueByField("message")).getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER))) < 0)
+        if (l < size && (collection[r].compareTo(collection[smallest]) < 0))
             smallest = r;
 
         if (smallest != i)
@@ -81,7 +118,7 @@ public class MinHeap implements Serializable
         }
     }
 
-    public Tuple poll()
+    public HeapElement poll()
     {
         if (size == 0)
             throw new RuntimeException("There are no elements in the heap to get the minimum.");
@@ -91,7 +128,7 @@ public class MinHeap implements Serializable
             return collection[0];
         }
 
-        Tuple ret = collection[0];
+        HeapElement ret = collection[0];
         collection[0] = collection[size - 1];
         size--;
 
@@ -100,7 +137,7 @@ public class MinHeap implements Serializable
         return ret;
     }
 
-    public Tuple peek()
+    public HeapElement peek()
     {
         if (size > 0)
             return collection[0];
