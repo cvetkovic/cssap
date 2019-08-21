@@ -130,14 +130,16 @@ public class NodesFactory
             public void next(int channelNumber, KV<A, SystemMessage> item)
             {
                 if (item.getK() == null)
-                    System.out.println("END_OF_STREAM");
+                    code.call((A)"END_OF_STREAM");
                 else
+                    code.call(item.getK());
+
+                /*else
                 {
                     System.out.print(item.getV().getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER).toString());
-                    System.out.print(" - ");
+                    System.out.print(" - ");*/
 
-                    code.call(item.getK());
-                }
+                //}
             }
         };
     }
