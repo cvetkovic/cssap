@@ -1,4 +1,4 @@
-package compiler.interfaces;
+package compiler.graph;
 
 import compiler.interfaces.basic.Source;
 import compiler.interfaces.lambda.Function0;

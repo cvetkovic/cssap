@@ -1,4 +1,4 @@
-package compiler;
+package compiler.graph;
 
 import compiler.interfaces.Graph;
 import compiler.interfaces.basic.Operator;

@@ -11,8 +11,7 @@ public class SystemMessage implements Serializable, Cloneable
         MEANT_FOR(0),
         INPUT_CHANNEL(1),
         SEQUENCE_NUMBER(2),
-        END_OF_OUTPUT(3),
-        END_OF_STREAM(4);
+        END_OF_STREAM(3);
         // WHEN ADDING NEW MESSAGE TYPES CHANGE RETURNED VALUE IN count() METHOD
 
         private final int i;
@@ -24,7 +23,7 @@ public class SystemMessage implements Serializable, Cloneable
 
         private static int count()
         {
-            return 5;
+            return 4;
         }
     }
 
@@ -176,21 +175,19 @@ public class SystemMessage implements Serializable, Cloneable
             else
                 return true;
         }
-    }
 
-    public static class EndOfOutput extends Payload
-    {
-        private SequenceNumber sequenceNumber;
-
-        public EndOfOutput(SequenceNumber sequenceNumber)
+        public int getLevelNumber()
         {
-            this.sequenceNumber = sequenceNumber;
-        }
+            int lvl = 0;
+            SequenceNumber sn = this;
 
-        @Override
-        public Object clone()
-        {
-            return new EndOfOutput((SequenceNumber) sequenceNumber.clone());
+            while (sn != null)
+            {
+                lvl++;
+                sn = sn.subsequenceNumber;
+            }
+
+            return lvl;
         }
     }
 
@@ -200,6 +197,12 @@ public class SystemMessage implements Serializable, Cloneable
         {
             super(Integer.MAX_VALUE);
         }
+
+        @Override
+        public Object clone()
+        {
+            return new EndOfStream();
+        }
     }
 
     public void addPayload(Payload p)
@@ -208,6 +211,8 @@ public class SystemMessage implements Serializable, Cloneable
             payloads.put(MessageTypes.MEANT_FOR, p);
         else if (p instanceof InputChannelSpecification)
             payloads.put(MessageTypes.INPUT_CHANNEL, p);
+        else if (p instanceof EndOfStream)                  // MUST GO BEFORE SequenceNumber
+            payloads.put(MessageTypes.END_OF_STREAM, p);
         else if (p instanceof SequenceNumber)
         {
             if (payloads.containsKey(MessageTypes.SEQUENCE_NUMBER) == false)
@@ -218,10 +223,6 @@ public class SystemMessage implements Serializable, Cloneable
                 root.getLeaf().subsequenceNumber = (SequenceNumber) p;
             }
         }
-        else if (p instanceof EndOfOutput)
-            payloads.put(MessageTypes.END_OF_OUTPUT, p);
-        else if (p instanceof EndOfStream)
-            payloads.put(MessageTypes.END_OF_STREAM, p);
         else
             throw new RuntimeException("Not supported type of payload.");
     }

@@ -1,5 +1,7 @@
 package compiler.interfaces.basic;
 
+import compiler.structures.KV;
+
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -10,7 +12,7 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IPro
     private int parallelismHint = 1;
     protected IConsumer<B>[] consumers;
     protected Map<String, Integer> inputGates = new HashMap<>();
-    protected Map<Integer, String> outputGates = new HashMap<>();
+    protected Map<Integer, KV<String, String>> outputGates = new HashMap<>();
     protected String name;
 
     public Operator(String name, int inputArity, int outputArity, int parallelismHint)
@@ -65,5 +67,5 @@ public abstract class Operator<A, B> implements Serializable, IConsumer<A>, IPro
     {
         return inputGates;
     }
-    public Map<Integer, String> getOutputGates() { return outputGates; }
+    public Map<Integer, KV<String, String>> getOutputGates() { return outputGates; }
 }

@@ -1,7 +1,7 @@
 package compiler.interfaces;
 
-import compiler.AtomicGraph;
-import compiler.SerialGraph;
+import compiler.graph.AtomicGraph;
+import compiler.graph.SerialGraph;
 import compiler.interfaces.basic.IConsumer;
 import compiler.interfaces.basic.Operator;
 import compiler.interfaces.basic.Sink;
@@ -67,15 +67,6 @@ public abstract class Graph implements Serializable
      */
     public StormTopology getStormTopology(Source source)
     {
-        // used for faster access while compiling
-        Map<IConsumer, StormBolt> cache = new HashMap<>();
-        TopologyBuilder builder = new TopologyBuilder();
-        // compiling source into spount
-        BaseRichSpout spout = generateSpout(source);
-        builder.setSpout("source", spout);
-        //channelMapping.put("G" + uniqueGateId, source);
-        source.getOutputGates().put(0, "E" + uniqueGateId);
-
         // getting reference to a first operator in the graph
         Operator operator;
         if (this instanceof AtomicGraph)
@@ -84,6 +75,16 @@ public abstract class Graph implements Serializable
             operator = ((SerialGraph) this).getConstituentGraphs()[0];
         else
             throw new RuntimeException("Parallel graph not allowed on the beginning of the topology, because that implies that the topology would have multiple sources, which is not allowed.");
+
+
+        // used for faster access while compiling
+        Map<IConsumer, StormBolt> cache = new HashMap<>();
+        TopologyBuilder builder = new TopologyBuilder();
+        // compiling source into spount
+        BaseRichSpout spout = generateSpout(source);
+        builder.setSpout("source", spout);
+        //channelMapping.put("G" + uniqueGateId, source);
+        source.getOutputGates().put(0, new KV("E" + uniqueGateId, getOperator().getName()));
 
         // compiling first node of a graph
         BaseBasicBolt generated = generateOperator(new AtomicGraph(operator));
@@ -102,15 +103,16 @@ public abstract class Graph implements Serializable
     {
         for (int i = 0; i < previousOperator.getOutputArity(); i++)
         {
-            if (!previousOperator.getOutputGates().containsKey(i))
-                previousOperator.getOutputGates().put(i, "E" + uniqueGateId);
             IConsumer[] successors = previousOperator.getConsumers();
-
             ///////////////////////////////////////////////////////////////
             //  PARALLEL COMPOSITION CONSTITUENTS EXTRACTION
             ///////////////////////////////////////////////////////////////
             if (successors[i] instanceof Operator && ((Operator) successors[i]).getParallelConstituent() != null)
                 successors = ((Operator) successors[i]).getParallelConstituent();
+            ///////////////////////////////////////////////////////////////
+
+            if (!previousOperator.getOutputGates().containsKey(i))
+                previousOperator.getOutputGates().put(i, new KV("E" + uniqueGateId, successors[i]));
 
             if (successors[i] instanceof Operator)
             {
@@ -227,25 +229,45 @@ public abstract class Graph implements Serializable
         {
             private SpoutOutputCollector collector;
             private SuccessiveNumberGenerator generator = new SuccessiveNumberGenerator();
+            private boolean endOfStreamSent = false;
+
+            // all the inputs go to channel zero(0)
+            private String edgeID;
 
             @Override
             public void open(Map conf, TopologyContext context, SpoutOutputCollector collector)
             {
                 this.collector = collector;
+                this.edgeID = ((KV) source.getOutputGates().get(0)).getK().toString();
             }
 
             @Override
             public void nextTuple()
             {
-                String edgeID = source.getOutputGates().get(0).toString();
+                if (!source.hasNext())
+                {
+                    // send end of stream only once
+                    if (!endOfStreamSent)
+                    {
+                        SystemMessage message = new SystemMessage();
+                        message.addPayload(new SystemMessage.InputChannelSpecification(edgeID));
+                        message.addPayload(new SystemMessage.EndOfStream());
+                        endOfStreamSent = true;
 
-                // all the inputs go to channel zero(0)
-                SystemMessage message = new SystemMessage();
-                message.addPayload(new SystemMessage.InputChannelSpecification(edgeID));
-                message.addPayload(new SystemMessage.SequenceNumber(generator.getCurrentState()));
-                generator.next();
+                        collector.emit(new Values(null, message));
+                    }
 
-                collector.emit(new Values(source.next(), message));
+                    return;
+                }
+                else    // SEND PRODUCED ITEMS
+                {
+                    SystemMessage message = new SystemMessage();
+                    message.addPayload(new SystemMessage.InputChannelSpecification(edgeID));
+                    message.addPayload(new SystemMessage.SequenceNumber(generator.getCurrentState()));
+                    generator.next();
+
+                    collector.emit(new Values(source.next(), message));
+                }
             }
 
             @Override
@@ -273,7 +295,7 @@ public abstract class Graph implements Serializable
             private IConsumer[] internalConsumers;
 
             // Storm task IDs of nodes to which operator outputs
-            private Integer[] taskIds;
+            private Map<String, Integer> taskIds = new HashMap<>();
 
             // order preserving structures
             private MinHeap[] inputChannelBuffer;
@@ -289,61 +311,58 @@ public abstract class Graph implements Serializable
 
             private void flushBuffer(int inputChannel)
             {
-                // initial
-                if (inputChannelReceivedCounter != operator.getInputArity())
-                    return;
-
-                while (true)
+                do
                 {
+                    if (inputChannelReceivedCounter != operator.getOperator().getInputArity())
+                        return;
+
                     int minIndex = 0;
+                    boolean allEnd = true;
                     for (int i = 0; i < inputChannelBuffer.length; i++)
                     {
-                        // we have to wait
-                        if (inputChannelBuffer[i].peek() == null)
-                            return;
-
                         if (inputChannelBuffer[minIndex].peek().compareTo(inputChannelBuffer[i].peek()) > 0)
                             minIndex = i;
+
+                        if (inputChannelBuffer[i].peek().getMessage().getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM) == null)
+                            allEnd = false;
                     }
 
-                    MinHeap.HeapElement element = inputChannelBuffer[minIndex].peek();
-                    if (lastProcessed == null)
+                    if (allEnd)
                     {
-                        inputChannelBuffer[minIndex].poll();
-                        lastProcessed = element;
+                        endOfStreamReceived = operator.getInputArity();
 
-                        processElement(element, inputChannel);
-                    }
+                        SystemMessage msg = new SystemMessage();
+                        msg.addPayload(new SystemMessage.EndOfStream());
 
-                    boolean done = false;
-                    while (inputChannelBuffer[minIndex].peek() != null &&
-                            SystemMessage.SequenceNumber.commonProducer((SystemMessage.SequenceNumber) lastProcessed.getMessage().getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER),
-                                    (SystemMessage.SequenceNumber) inputChannelBuffer[minIndex].peek().getMessage().getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER)))
-                    {
-                        element = inputChannelBuffer[minIndex].poll();
-                        lastProcessed = element;
+                        for (int i = 0; i < internalConsumers.length; i++)
+                            internalConsumers[i].next(i, new KV(null, msg.clone()));
 
-                        processElement(element, inputChannel);
-                        done = true;
-                    }
-
-                    if (done == false)
-                    {
-                        lastProcessed = null;
                         return;
                     }
-                }
-            }
 
-            private void processElement(MinHeap.HeapElement element, int inputChannel)
-            {
-                // TODO: move operators next invocation to here
-                operator.getOperator().next(inputChannel, new KV(element.getElement(), element.getMessage()));
+                    MinHeap.HeapElement elem = inputChannelBuffer[minIndex].poll();
+                    Object item = elem.getElement();
+                    SystemMessage message = elem.getMessage();
+
+                    if (item != null)
+                        operator.getOperator().next(inputChannel, new KV(item, message));
+
+                    if (inputChannelBuffer[minIndex].peek() == null)
+                    {
+                        inputChannelReceived[minIndex] = false;
+                        inputChannelReceivedCounter--;
+
+                        break;
+                    }
+                } while (true);
             }
 
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
+                if (endOfStreamReceived >= operator.getOperator().getInputArity())  // THE TOPOLOGY HAS FINISHED COMPUTING, NO WORK TO BE DONE MORE
+                    return;
+
                 this.collector = collector;
                 this.subsequenceGenerator.reset();
 
@@ -351,39 +370,9 @@ public abstract class Graph implements Serializable
                 SystemMessage message = (SystemMessage) input.getValueByField("message");
                 int inputChannel = (int) operator.getOperator().getInputGates().get(((SystemMessage.InputChannelSpecification) message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL)).inputChannel);
 
-                ////////////////////////////////////////////////////////////////////////////////////////////////////////
-                //  END OF OUTPUT
-                ////////////////////////////////////////////////////////////////////////////////////////////////////////
-                if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM) != null)
-                {
-                    endOfStreamReceived++;
-                    return;     // END OF STREAM MESSAGE RECEIVED, DO NOT GO FURTHER
-                }
-
-                if (endOfStreamReceived == getInputArity())
-                {
-                    SystemMessage msg = new SystemMessage();
-                    msg.addPayload(new SystemMessage.EndOfStream());
-
-                    // TODO: see what to do with this 0 in first parameter inside the loop
-                    for (int i = 0; i < internalConsumers.length; i++)
-                        internalConsumers[i].next(0, new KV<Object, SystemMessage>(null, msg));
-
-                    endOfStreamReceived++;
-                }
-                else if (endOfStreamReceived > endOfStreamReceived)
-                    return; // THE TOPOLOGY HAS FINISHED COMPUTING, NO WORK TO BE DONE MORE
-                ////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-                // removing unnecessary payload
+                // removing payload left from grouping
                 if (message.getPayloadByType(SystemMessage.MessageTypes.MEANT_FOR) != null)
                     message.deletePayloadFromMessage(SystemMessage.MessageTypes.MEANT_FOR);
-
-                if (item == null && operator.getInputArity() <= 1)
-                    return;         // EOO won't be used
-
-                if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_OUTPUT) != null && operator.getInputArity() <= 1)
-                    message.deletePayloadFromMessage(SystemMessage.MessageTypes.END_OF_OUTPUT);
 
                 ////////////////////////////////////////////////////////////////////////////////////////////////////////
                 //  ORDER SHOULD BE PRESERVED IF TRUE
@@ -396,19 +385,62 @@ public abstract class Graph implements Serializable
                         inputChannelReceivedCounter++;
                     }
 
-                    inputChannelBuffer[inputChannel].insert(item, message);
+                    if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM) != null)
+                    {
+                        SystemMessage msg = new SystemMessage();
+                        msg.addPayload(new SystemMessage.EndOfStream());
+
+                        inputChannelBuffer[inputChannel].insert(null, msg);
+                    }
+                    else
+                        inputChannelBuffer[inputChannel].insert(item, message);
+
                     flushBuffer(inputChannel);
                 }
-                else
+                else // inputArity == 1
                 {
+                    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+                    //  END OF OUTPUT -> separate algorithm for different input arity
+                    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+                    if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM) != null)
+                    {
+                        endOfStreamReceived++;
+
+                        SystemMessage msg = new SystemMessage();
+                        msg.addPayload(new SystemMessage.EndOfStream());
+
+                        for (int i = 0; i < internalConsumers.length; i++)
+                            internalConsumers[i].next(i, new KV(null, msg.clone()));
+
+                        return;
+                    }
+                    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
                     ////////////////////////////////////////////////////////////////////////////////////////////////////////
                     //  SENDING DATA TO THE OPERATOR
                     ////////////////////////////////////////////////////////////////////////////////////////////////////////
-                    operator.getOperator().next(inputChannel, new KV(item, message));
+                    if (item != null)
+                        operator.getOperator().next(inputChannel, new KV(item, message));
 
                     ////////////////////////////////////////////////////////////////////////////////////////////////////////
                     //  END OF OUTPUT IN CASE IT IS IMPLEMENTED SHOULD GO BELOW
                     ////////////////////////////////////////////////////////////////////////////////////////////////////////
+                    //  The code below requires that operator has ability to process null items. It was done this
+                    //  way to be able to simplify the code because otherwise source must be distinguished from operators
+                    //  which requires addition coding
+                    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+                    for (int i = 0; i < internalConsumers.length; i++)
+                    {
+                        if (item == null)   // just pass the item
+                            internalConsumers[i].next(i, new KV(item, message.clone()));
+                        else
+                        {
+                            SystemMessage cl = (SystemMessage) message.clone();
+                            cl.addPayload(new SystemMessage.SequenceNumber(Integer.MAX_VALUE));
+
+                            internalConsumers[i].next(i, new KV(null, cl));
+                        }
+                    }
                 }
             }
 
@@ -426,10 +458,11 @@ public abstract class Graph implements Serializable
                 Map<String, Grouping> connectedTo = context.getThisTargets().get("default");
                 Iterator<String> nextOperatorNames = connectedTo.keySet().iterator();
 
-                taskIds = new Integer[connectedTo.size()];
-                int k = 0;
                 while (nextOperatorNames.hasNext())
-                    taskIds[k++] = context.getComponentTasks(nextOperatorNames.next()).get(0);
+                {
+                    String opName = nextOperatorNames.next();
+                    taskIds.put(opName, context.getComponentTasks(opName).get(0));
+                }
 
                 internalConsumers = new IConsumer[operator.getOutputArity()];
 
@@ -442,6 +475,12 @@ public abstract class Graph implements Serializable
                 {
                     internalConsumers[i] = new IConsumer()
                     {
+                        @Override
+                        public String getName()
+                        {
+                            throw new RuntimeException("This method was never supposed to be called.");
+                        }
+
                         @Override
                         public int getInputArity()
                         {
@@ -459,8 +498,9 @@ public abstract class Graph implements Serializable
                                 ///////////////////////////////////////////////////////////////
                                 //  MEANT FOR
                                 ///////////////////////////////////////////////////////////////
-                                int taskGoingTo = taskIds[channelNumber];
-                                message.addPayload(new SystemMessage.MeantFor(operator.getOperator().getName(), taskGoingTo));
+                                String nextOperatorName = ((IConsumer) (((KV) operator.getOperator().getOutputGates().get(channelNumber)).getV())).getName();
+                                //int taskGoingTo = taskIds[channelNumber];
+                                message.addPayload(new SystemMessage.MeantFor(operator.getOperator().getName(), taskIds.get(nextOperatorName)));
                             }
 
                             ///////////////////////////////////////////////////////////////
@@ -469,13 +509,16 @@ public abstract class Graph implements Serializable
                             // sending the same sequence number to all following nodes
                             // grouping will decide what messages it will drop
                             ///////////////////////////////////////////////////////////////
-                            message.addPayload(new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState()));
-                            subsequenceGenerator.next();
+                            if (item != null)
+                            {
+                                message.addPayload(new SystemMessage.SequenceNumber(subsequenceGenerator.getCurrentState()));
+                                subsequenceGenerator.next();
+                            }
 
                             ///////////////////////////////////////////////////////////////
-                            //  INPUT CHANNEL ROUTING
+                            //  OUTPUT CHANNEL ROUTING
                             ///////////////////////////////////////////////////////////////
-                            String outputEdge = operator.getOperator().getOutputGates().get(channelNumber).toString();
+                            String outputEdge = ((KV) operator.getOperator().getOutputGates().get(channelNumber)).getK().toString();
                             message.addPayload(new SystemMessage.InputChannelSpecification(outputEdge));
 
                             collector.emit(new Values(item, message));
@@ -492,15 +535,27 @@ public abstract class Graph implements Serializable
     {
         return new BaseBasicBolt()
         {
+            private boolean halted = false;
+
             @Override
             public void execute(Tuple input, BasicOutputCollector collector)
             {
+                if (halted)
+                    return;
+
                 Object item = input.getValueByField("data");
                 SystemMessage message = (SystemMessage) input.getValueByField("message");
                 SystemMessage.Payload payload = message.getPayloadByType(SystemMessage.MessageTypes.INPUT_CHANNEL);
+                int inputChannel = (int) (sink.getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel));
+
+                if (message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM) != null)
+                {
+                    halted = true;
+                    sink.next(inputChannel, new KV(null, message));
+                }
 
                 if (item != null)
-                    sink.next((int) (sink.getInputGates().get(((SystemMessage.InputChannelSpecification) payload).inputChannel)), new KV(item, message));
+                    sink.next(inputChannel, new KV(item, message));
             }
 
             @Override

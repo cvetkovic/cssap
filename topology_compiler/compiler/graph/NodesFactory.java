@@ -1,4 +1,4 @@
-package compiler;
+package compiler.graph;
 
 import compiler.interfaces.basic.Operator;
 import compiler.interfaces.basic.Sink;
@@ -13,8 +13,6 @@ import java.util.Random;
 
 public class NodesFactory
 {
-    // TODO: MOVE SYSTEM MESSAGE PASSING INTO OPERATOR CLASS
-
     public static <A, B> Operator<KV<A, SystemMessage>, KV<B, SystemMessage>> map(String name, Function1<A, B> code)
     {
         return map(name, 1, code);
@@ -27,14 +25,7 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
-                if (item.getK() == null && item.getV() != null)
-                {
-                    consumers[0].next(channelIdentifier, new KV(null, item.getV()));
-                    return;
-                }
-
-                KV<B, SystemMessage> kv = new KV<>(code.call(item.getK()), item.getV());
-                consumers[0].next(channelIdentifier, kv);
+                consumers[0].next(channelIdentifier, new KV(code.call(item.getK()), item.getV().clone()));
             }
         };
     }
@@ -51,14 +42,8 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
-                if (item.getK() == null && item.getV() != null)
-                {
-                    consumers[0].next(channelIdentifier, item);
-                    return;
-                }
-
                 if (predicate.test(item.getK()))
-                    consumers[0].next(channelIdentifier, item);
+                    consumers[0].next(channelIdentifier, new KV(item.getK(), item.getV().clone()));
             }
         };
     }
@@ -72,14 +57,8 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
-                if (item.getK() == null && item.getV() != null)
-                {
-                    consumers[0].next(channelIdentifier, new KV(null, item.getV()));
-                    return;
-                }
-
                 accumulator = function.call(accumulator, item.getK());
-                consumers[0].next(channelIdentifier, new KV<B, SystemMessage>(accumulator, item.getV()));
+                consumers[0].next(channelIdentifier, new KV(accumulator, item.getV().clone()));
             }
         };
     }
@@ -91,14 +70,6 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
-                if (item.getK() == null && item.getV() != null)
-                {
-                    for (int i = 0; i < consumers.length; i++)
-                        consumers[i].next(i, new KV(null, item.getV().clone()));
-                    return;
-                }
-
-                // clone here mandatory
                 for (int i = 0; i < consumers.length; i++)
                     consumers[i].next(i, new KV(item.getK(), item.getV().clone()));
             }
@@ -114,13 +85,6 @@ public class NodesFactory
             @Override
             public void next(int channelIdentifier, KV<A, SystemMessage> item)
             {
-                if (item.getK() == null && item.getV() != null)
-                {
-                    for (int i = 0; i < consumers.length; i++)
-                        consumers[i].next(i, new KV(null, item.getV()));
-                    return;
-                }
-
                 for (int i = 0; i < consumers.length; i++)
                 {
                     int bound = (int) (5 * r.nextDouble());
@@ -165,11 +129,15 @@ public class NodesFactory
             @Override
             public void next(int channelNumber, KV<A, SystemMessage> item)
             {
-                // TODO: for debug
-                System.out.print(item.getV().getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER).toString());
-                System.out.print(" - ");
+                if (item.getK() == null)
+                    System.out.println("END_OF_STREAM");
+                else
+                {
+                    System.out.print(item.getV().getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER).toString());
+                    System.out.print(" - ");
 
-                code.call(item.getK());
+                    code.call(item.getK());
+                }
             }
         };
     }

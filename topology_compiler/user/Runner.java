@@ -1,13 +1,10 @@
 package user;
 
-import compiler.AtomicGraph;
-import compiler.NodesFactory;
-import compiler.ParallelGraph;
-import compiler.SerialGraph;
+import compiler.graph.*;
 import compiler.interfaces.Graph;
-import compiler.interfaces.InfiniteSource;
 import compiler.interfaces.basic.Operator;
 import compiler.interfaces.basic.Sink;
+import compiler.interfaces.basic.Source;
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
 
@@ -52,8 +49,11 @@ public class Runner
     {
         Random r = new Random();
 
-        InfiniteSource source = new InfiniteSource(() -> r.nextDouble());
-        Operator copy = NodesFactory.copyWithRandomSelectivity("copy", 2);
+        Source source = new FiniteSource(() -> r.nextDouble(), 10);
+        //Source source = new InfiniteSource(() -> r.nextDouble());
+        Operator copy = NodesFactory.copy("copy", 2);
+        /*Operator map1 = NodesFactory.filter("filter1", (Double item) -> item < 0.5);
+        Operator map2 = NodesFactory.filter("filter2", (Double item) -> item >= 0.5);*/
         Operator map1 = NodesFactory.map("map1", (Double item) -> item);
         Operator map2 = NodesFactory.map("map2", (Double item) -> item);
         Operator merge = NodesFactory.merge("merger", 2);
@@ -67,7 +67,9 @@ public class Runner
         op.subscribe(printer);
         //serialGraph.executeLocal(source);
 
-        new LocalCluster().submitTopology("topologyCompiler", new Config(), serialGraph.getStormTopology(source));
+        Config cfg = new Config();
+        //cfg.setDebug(true);
+        new LocalCluster().submitTopology("topologyCompiler", cfg, serialGraph.getStormTopology(source));
     }
 
     /*

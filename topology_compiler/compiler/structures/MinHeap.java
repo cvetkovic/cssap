@@ -33,12 +33,19 @@ public class MinHeap implements Serializable
         @Override
         public int compareTo(HeapElement o)
         {
-            if (this.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null ||
-                o.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null)
+            if ((this.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null &&
+                    this.message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM) == null) ||
+                    (o.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER) == null &&
+                     o.message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM) == null))
                 throw new RuntimeException("Item doesn't have sequence number and hence cannot be compared.");
 
-            SystemMessage.SequenceNumber snLeft = (SystemMessage.SequenceNumber)this.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
-            SystemMessage.SequenceNumber snRight = (SystemMessage.SequenceNumber)o.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+            SystemMessage.SequenceNumber snLeft = (SystemMessage.SequenceNumber) this.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+            if (snLeft == null)
+                snLeft = (SystemMessage.SequenceNumber) this.message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM);
+
+            SystemMessage.SequenceNumber snRight = (SystemMessage.SequenceNumber) o.message.getPayloadByType(SystemMessage.MessageTypes.SEQUENCE_NUMBER);
+            if (snRight == null)
+                snRight = (SystemMessage.SequenceNumber) o.message.getPayloadByType(SystemMessage.MessageTypes.END_OF_STREAM);
 
             return snLeft.compareTo(snRight);
         }
