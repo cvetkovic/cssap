@@ -348,4 +348,87 @@ public class TopologyTests implements Serializable
         cluster.killTopology("semanticsPreservation");
         Assert.assertTrue(true);
     }
+
+    // arbitrary topology semantics preservation test
+    @Test
+    public void semanticsPreservationTest5() throws Exception
+    {
+        LocalCluster cluster = new LocalCluster();
+
+        int length = 10000;
+
+        Source source = new FiniteSource(new Function0()
+        {
+            private int k = 0;
+
+            @Override
+            public synchronized Object call()
+            {
+                return k++;
+            }
+        }, length);
+        Operator copy1 = NodesFactory.copy("copy", 2);
+        Operator map1 = NodesFactory.map("map", (Integer item) -> item * 10);
+        Operator merger1 = NodesFactory.merge("merger", 2);
+        Sink printer = NodesFactory.sink("printer", new Endpoint<Object>()
+        {
+            private Socket socket;
+            private OutputStream os;
+            private DataOutputStream dos;
+
+            @Override
+            public void call(Object item)
+            {
+                try
+                {
+                    if (socket == null)
+                    {
+                        socket = new Socket("localhost", 5000);
+                        os = socket.getOutputStream();
+                        dos = new DataOutputStream(os);
+                    }
+
+                    dos.writeUTF(item.toString());
+                } catch (IOException e)
+                {
+                    e.printStackTrace();
+                }
+            }
+        });
+
+        copy1.subscribe(map1, merger1);
+        map1.subscribe(merger1);
+        merger1.subscribe(printer);
+
+        cluster.submitTopology("semanticsPreservation", new Config(), new AtomicGraph(copy1).getStormTopology(source));
+
+        ServerSocket serverSocket = new ServerSocket(5000);
+        Socket s = serverSocket.accept();
+        DataInputStream dis = new DataInputStream(s.getInputStream());
+
+        List<Integer> results = new LinkedList<>();
+
+        while (true)
+        {
+            String readUTF = dis.readUTF();
+            if (readUTF.equals("END_OF_STREAM"))
+                break;
+            else
+                results.add(Integer.parseInt(readUTF));
+        }
+
+        for (int i = 0; i < length; i++)
+        {
+            int first = results.get(2 * i);
+            int second = results.get(2 * i + 1);
+
+            if (first == 10 * second)
+                continue;
+            else
+                Assert.assertTrue(false);
+        }
+
+        cluster.killTopology("semanticsPreservation");
+        Assert.assertTrue(true);
+    }
 }
